@@ -10,6 +10,7 @@ const nav = [
   { href: '/strength', label: 'Strength', icon: '🏋️', color: 'text-etg-blue' },
   { href: '/central', label: 'Central Coach', icon: '🧠', color: 'text-etg-purple' },
   { href: '/settings', label: 'Settings', icon: '⚙️' },
+  { href: '/usage', label: 'API Usage', icon: '📊' },
 ]
 
 export default function Sidebar() {
@@ -37,8 +38,17 @@ export default function Sidebar() {
           </Link>
         ))}
       </nav>
-      <div className="p-4 border-t border-white/8">
+      <div className="p-4 border-t border-white/8 space-y-2">
         <div className="text-[10px] text-white/20 uppercase tracking-wider">Week 1 · Squat Block</div>
+        <button
+          onClick={async () => {
+            await fetch('/api/logout', { method: 'POST' })
+            window.location.href = '/login'
+          }}
+          className="text-[11px] text-white/20 hover:text-white/50 transition-colors"
+        >
+          Sign out
+        </button>
       </div>
     </aside>
   )
