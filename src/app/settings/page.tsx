@@ -5,9 +5,10 @@ import Sidebar from '@/components/Sidebar'
 import { Card } from '@/components/ui'
 
 function Row({ label, value, unit }: { label: string; value: any; unit?: string }) {
-  const display = value !== null && value !== undefined && value !== '' ? `${value}${unit ? ' ' + unit : ''}` : '—'
+  const display = (value !== null && value !== undefined && value !== '')
+    ? `${value}${unit ? ' ' + unit : ''}` : '—'
   return (
-    <div className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+    <div className="flex items-center justify-between py-2.5 border-b border-white/5 last:border-0">
       <span className="text-xs text-white/40">{label}</span>
       <span className={`text-sm font-medium ${display === '—' ? 'text-white/20' : 'text-white'}`}>{display}</span>
     </div>
@@ -24,6 +25,15 @@ function Field({ label, id, type = 'text', placeholder, step, min, max, value, o
     </div>
   )
 }
+
+// Only include fields that exist in the DB schema
+const SAFE_FIELDS = [
+  'current_weight','goal_weight','target_date',
+  'daily_calories','daily_water','daily_protein','daily_carbs','daily_fat',
+  'hrv_baseline','hrv_minimum','sleep_target','whoop_min_recovery','whoop_max_strain',
+  'training_days_per_week','current_block','training_goal','athlete_background',
+  'hrv_flag_days','strain_flag_days','weight_plateau_days',
+]
 
 export default function SettingsPage() {
   const [saved, setSaved] = useState<any>(null)
@@ -53,22 +63,33 @@ export default function SettingsPage() {
     setSaving(true)
     setMsg('')
     const data: any = { id: 1, updated_at: new Date().toISOString() }
-    Object.entries(form).forEach(([k, v]) => {
-      if (k === 'id' || k === 'updated_at') return
-      const num = parseFloat(v as string)
-      data[k] = (v === '' || v === null || v === undefined) ? null : (!isNaN(num) ? num : v)
+    SAFE_FIELDS.forEach(k => {
+      const v = form[k]
+      if (v === '' || v === null || v === undefined) {
+        data[k] = null
+      } else {
+        const num = parseFloat(v as string)
+        data[k] = !isNaN(num) && typeof v !== 'boolean' ? num : v
+      }
+    })
+    // text fields — don't convert to number
+    ;['target_date','current_block','training_goal','athlete_background'].forEach(k => {
+      data[k] = (form[k] === '' || form[k] === undefined) ? null : form[k]
     })
     const { error } = await supabase.from('settings').upsert(data)
     if (!error) {
-      setSaved({ ...data }); setEditing(false); setMsg('Saved successfully')
+      setSaved({ ...data })
+      setEditing(false)
+      setMsg('Saved successfully')
       setTimeout(() => setMsg(''), 3000)
     } else {
-      setMsg('Error saving — please try again')
+      console.error('Save error:', error)
+      setMsg(`Error: ${error.message}`)
     }
     setSaving(false)
   }
 
-  const hasData = saved && Object.entries(saved).some(([k, v]) => !['id','updated_at'].includes(k) && v !== null && v !== undefined && v !== '')
+  const hasData = saved && SAFE_FIELDS.some(k => saved[k] !== null && saved[k] !== undefined && saved[k] !== '')
 
   if (loading) return (
     <div className="flex h-screen bg-[#0a0a0a]"><Sidebar />
@@ -81,21 +102,26 @@ export default function SettingsPage() {
       <Sidebar />
       <main className="ml-52 flex-1 overflow-y-auto p-6">
         <div className="max-w-2xl mx-auto">
+
           <div className="flex items-center justify-between mb-6">
             <div>
               <h1 className="text-xl font-semibold text-white">Settings</h1>
               <p className="text-white/40 text-sm mt-0.5">Your targets and baselines — used by all coaches</p>
             </div>
             {!editing ? (
-              <button onClick={startEdit} className="px-4 py-2 text-sm font-medium border border-etg-purple/50 text-etg-purple rounded-lg hover:bg-etg-purple/10 transition-all">
+              <button onClick={startEdit}
+                className="px-4 py-2 text-sm font-medium border border-etg-purple/50 text-etg-purple rounded-lg hover:bg-etg-purple/10 transition-all">
                 {hasData ? 'Edit settings' : 'Set up settings'}
               </button>
             ) : (
               <div className="flex gap-2">
-                <button type="button" onClick={cancelEdit} className="px-4 py-2 text-sm text-white/40 border border-white/10 rounded-lg hover:bg-white/5 transition-all">Cancel</button>
+                <button type="button" onClick={cancelEdit}
+                  className="px-4 py-2 text-sm text-white/40 border border-white/10 rounded-lg hover:bg-white/5 transition-all">
+                  Cancel
+                </button>
                 <button form="settings-form" type="submit" disabled={saving}
                   className="px-4 py-2 text-sm font-medium bg-etg-purple hover:bg-etg-purple/80 disabled:opacity-40 text-white rounded-lg transition-all flex items-center gap-2">
-                  {saving && <span className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />}
+                  {saving && <span className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin inline-block" />}
                   {saving ? 'Saving...' : 'Save changes'}
                 </button>
               </div>
@@ -108,16 +134,17 @@ export default function SettingsPage() {
             </div>
           )}
 
+          {/* VIEW MODE */}
           {!editing && (
             <div className="space-y-4">
               <Card>
-                <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-3">Body composition</div>
+                <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Body composition</div>
                 <Row label="Current weight" value={saved?.current_weight} unit="kg" />
                 <Row label="Goal weight" value={saved?.goal_weight} unit="kg" />
                 <Row label="Target date" value={saved?.target_date} />
               </Card>
               <Card>
-                <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-3">Nutrition targets</div>
+                <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Nutrition targets</div>
                 <Row label="Daily calories" value={saved?.daily_calories} unit="kcal" />
                 <Row label="Daily water" value={saved?.daily_water} unit="L" />
                 <Row label="Protein" value={saved?.daily_protein} unit="g" />
@@ -125,7 +152,7 @@ export default function SettingsPage() {
                 <Row label="Fat" value={saved?.daily_fat} unit="g" />
               </Card>
               <Card>
-                <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-3">Recovery baselines</div>
+                <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Recovery baselines</div>
                 <Row label="HRV baseline" value={saved?.hrv_baseline} unit="ms" />
                 <Row label="HRV minimum" value={saved?.hrv_minimum} unit="ms" />
                 <Row label="Target sleep" value={saved?.sleep_target} unit="hr" />
@@ -133,7 +160,7 @@ export default function SettingsPage() {
                 <Row label="Max Whoop strain" value={saved?.whoop_max_strain} />
               </Card>
               <Card>
-                <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-3">Training profile</div>
+                <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Training profile</div>
                 <Row label="Training days/week" value={saved?.training_days_per_week} />
                 <Row label="Current block" value={saved?.current_block} />
                 <Row label="Primary goal" value={saved?.training_goal} />
@@ -145,15 +172,20 @@ export default function SettingsPage() {
                 )}
               </Card>
               <Card>
-                <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-3">Guardrail thresholds</div>
+                <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Guardrail thresholds</div>
                 <Row label="HRV flag after" value={saved?.hrv_flag_days} unit="days" />
                 <Row label="Strain flag after" value={saved?.strain_flag_days} unit="days" />
                 <Row label="Weight plateau" value={saved?.weight_plateau_days} unit="days" />
               </Card>
-              {!hasData && <div className="text-center py-8 text-white/30 text-sm">No settings saved yet. Click &quot;Set up settings&quot; to configure your targets.</div>}
+              {!hasData && (
+                <div className="text-center py-8 text-white/30 text-sm">
+                  No settings saved yet. Click &quot;Set up settings&quot; to get started.
+                </div>
+              )}
             </div>
           )}
 
+          {/* EDIT MODE */}
           {editing && (
             <form id="settings-form" onSubmit={handleSubmit} className="space-y-4">
               <Card>
@@ -209,7 +241,7 @@ export default function SettingsPage() {
                 <div className="flex flex-col gap-1">
                   <label className="text-xs text-white/50">Athlete background</label>
                   <textarea value={form.athlete_background ?? ''} onChange={e => update('athlete_background', e.target.value)} rows={3}
-                    placeholder="e.g. 3 years lifting. Bench PR 115kg..."
+                    placeholder="e.g. 3 years lifting. Bench PR 115kg. Pre-layoff squat 130-140kg. 12 weeks no lower body. Does BJJ 1x/week. Goal weight 95kg..."
                     className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/20 focus:outline-none focus:border-white/30 resize-none" />
                 </div>
               </Card>
@@ -224,6 +256,7 @@ export default function SettingsPage() {
               </Card>
             </form>
           )}
+
         </div>
       </main>
     </div>
