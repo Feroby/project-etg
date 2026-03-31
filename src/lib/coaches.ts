@@ -91,11 +91,21 @@ GUARDRAILS YOU ENFORCE:
 - Recovery below 33% → red flag`
 }
 
-function getStrengthSystemPrompt(settings: any, recentSessions: any[]): string {
-  const history = recentSessions.length > 0 ? `
-RECENT SESSION HISTORY:
-${recentSessions.map((s, i) => `Session ${i + 1} (${s.date}): ${s.day_type} | RPE: ${s.rpe}/10 | Feel: "${s.feel}" | Detail: "${s.session_detail}"`).join('\n')}
-` : 'RECENT HISTORY: No sessions yet.'
+function getStrengthSystemPrompt(settings: any, recentSessions: any[], sessionSets?: Record<string, any[]>): string {
+  const history = recentSessions.length > 0 ? (() => {
+    const lines = recentSessions.map((s, i) => {
+      const sets = sessionSets?.[s.id] || []
+      const exNames = [...new Set(sets.map((st: any) => st.exercise_name))] as string[]
+      const setDetail = exNames.length > 0
+        ? exNames.map((ex: string) => {
+            const exSets = sets.filter((st: any) => st.exercise_name === ex)
+            return `  ${ex}: ${exSets.map((st: any) => `${st.weight || '-'}kg x${st.reps || '-'} @RPE${st.rpe || '-'}`).join(', ')}`
+          }).join('\n')
+        : `  ${s.session_detail || 'No set data'}`
+      return `Session ${i + 1} (${s.date}): ${s.day_type} | Feel: "${s.feel}" | Duration: ${s.duration}min\n${setDetail}`
+    })
+    return `\nRECENT SESSION HISTORY (with exercise data):\n${lines.join('\n\n')}\n`
+  })() : 'RECENT HISTORY: No sessions yet.'
 
   return `You are Dr. Marcus Reid, a PhD in Exercise Science and certified strength & conditioning specialist (CSCS) with 20 years programming for powerlifters, strength athletes, and combat sports athletes.
 
@@ -175,13 +185,14 @@ export async function runCoachChat(
   messages: { role: 'user' | 'assistant'; content: string }[],
   settings: any,
   recentLogs: any[],
-  recentSessions: any[]
+  recentSessions: any[],
+  extra?: any
 ): Promise<string> {
   let systemPrompt = ''
   switch (coach) {
     case 'nutrition': systemPrompt = getNutritionSystemPrompt(settings, recentLogs); break
     case 'recovery': systemPrompt = getRecoverySystemPrompt(settings, recentLogs); break
-    case 'strength': systemPrompt = getStrengthSystemPrompt(settings, recentSessions); break
+    case 'strength': systemPrompt = getStrengthSystemPrompt(settings, recentSessions, (extra as any)?.sessionSets); break
     case 'central': systemPrompt = getCentralSystemPrompt(settings, recentLogs, recentSessions); break
   }
 
