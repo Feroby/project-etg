@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import Sidebar from '@/components/Sidebar'
 import ChatInterface from '@/components/ChatInterface'
 import TrendChart from '@/components/TrendChart'
+import CoachResponse from '@/components/CoachResponse'
 import { Card, MetricCard, Button, Input, Select, Textarea, Divider, Tabs, Spinner, Badge } from '@/components/ui'
 import { format, parseISO } from 'date-fns'
 
@@ -17,27 +18,25 @@ const WEEK1_PROGRAM = [
 export default function StrengthPage() {
   const [tab, setTab] = useState('log')
   const [sessions, setSessions] = useState<any[]>([])
-  const [logs, setLogs] = useState<any[]>([])
   const [chatHistory, setChatHistory] = useState<any[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [todaySession, setTodaySession] = useState<any>(null)
+  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [selectedSession, setSelectedSession] = useState<any>(null)
   const [lastSession, setLastSession] = useState<any>(null)
   const today = format(new Date(), 'yyyy-MM-dd')
 
   useEffect(() => {
     async function load() {
-      const [{ data: s }, { data: l }, { data: ch }] = await Promise.all([
+      const [{ data: s }, { data: ch }] = await Promise.all([
         supabase.from('strength_sessions').select('*').order('date', { ascending: true }),
-        supabase.from('daily_logs').select('*').order('date', { ascending: true }),
         supabase.from('chat_messages').select('*').eq('coach', 'strength').order('created_at', { ascending: true }).limit(100),
       ])
       setSessions(s || [])
-      setLogs(l || [])
       setChatHistory((ch || []).map(m => ({ role: m.role, content: m.content })))
       const todayS = (s || []).find((x: any) => x.date === today)
-      setTodaySession(todayS || null)
+      setSelectedSession(todayS || null)
       const past = (s || []).filter((x: any) => x.date < today).sort((a: any, b: any) => b.date.localeCompare(a.date))
       setLastSession(past[0] || null)
       setLoading(false)
@@ -45,13 +44,20 @@ export default function StrengthPage() {
     load()
   }, [])
 
+  function handleDateChange(date: string) {
+    setSelectedDate(date)
+    const existing = sessions.find(s => s.date === date)
+    setSelectedSession(existing || null)
+    setResult(null)
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setSubmitting(true)
     setResult(null)
     const fd = new FormData(e.currentTarget)
     const body = {
-      date: today,
+      date: selectedDate,
       week_number: parseInt(fd.get('week_number') as string) || 1,
       day_type: fd.get('day_type'),
       rpe: parseFloat(fd.get('rpe') as string) || null,
@@ -66,16 +72,19 @@ export default function StrengthPage() {
       body: JSON.stringify(body),
     }).then(r => r.json()).then(data => {
       setResult(data)
-      setTodaySession(body)
+      setSelectedSession(body)
       supabase.from('strength_sessions').select('*').order('date', { ascending: true }).then(({ data: s }) => setSessions(s || []))
     }).catch(() => setResult({ error: 'Submission failed. Please try again.' }))
     .finally(() => setSubmitting(false))
   }
 
-  const avgRpe = sessions.length ? (sessions.reduce((a, b) => a + (b.rpe || 0), 0) / sessions.filter(s => s.rpe).length).toFixed(1) : null
+  const avgRpe = sessions.filter(s => s.rpe).length
+    ? (sessions.filter(s => s.rpe).reduce((a, b) => a + b.rpe, 0) / sessions.filter(s => s.rpe).length).toFixed(1)
+    : null
   const rpeData = sessions.filter(s => s.rpe).map(s => ({ date: format(parseISO(s.date), 'dd/MM'), rpe: s.rpe }))
   const durData = sessions.filter(s => s.duration).map(s => ({ date: format(parseISO(s.date), 'dd/MM'), duration: s.duration }))
-  const alreadyLoggedToday = !!todaySession?.day_type
+  const alreadyLogged = !!selectedSession?.day_type
+  const isToday = selectedDate === today
 
   if (loading) return (
     <div className="flex h-screen bg-[#0a0a0a]"><Sidebar />
@@ -98,14 +107,21 @@ export default function StrengthPage() {
             <MetricCard label="Avg RPE" value={avgRpe ?? '—'} unit="/10" />
             <MetricCard label="Current block" value="Week 1 · Squat Reintro" />
           </div>
-          <Tabs tabs={[{ id: 'log', label: 'Log session' }, { id: 'program', label: 'Week 1 program' }, { id: 'chat', label: 'Chat' }, { id: 'trends', label: 'Trends' }, { id: 'history', label: 'History' }]} active={tab} onChange={setTab} />
+          <Tabs tabs={[{ id: 'log', label: 'Log session' }, { id: 'program', label: 'Program' }, { id: 'chat', label: 'Chat' }, { id: 'trends', label: 'Trends' }, { id: 'history', label: 'History' }]} active={tab} onChange={setTab} />
 
           {tab === 'log' && (
             <Card accent="blue">
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-xs text-white/40">{format(new Date(), 'EEEE, d MMMM yyyy')}</div>
-                {alreadyLoggedToday && !submitting && <div className="text-xs bg-etg-blue/20 text-etg-blue px-2 py-0.5 rounded-full">Session logged today ✓</div>}
-                {submitting && <div className="text-xs text-white/40 flex items-center gap-1"><Spinner size="sm" /> Saving in background...</div>}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <label className="text-xs text-white/40">Date</label>
+                  <input type="date" value={selectedDate} onChange={e => handleDateChange(e.target.value)}
+                    className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-white/30" />
+                  {!isToday && <span className="text-[10px] bg-etg-amber/20 text-etg-amber px-2 py-0.5 rounded-full">Editing past date</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  {alreadyLogged && !submitting && <div className="text-xs bg-etg-blue/20 text-etg-blue px-2 py-0.5 rounded-full">Logged ✓</div>}
+                  {submitting && <div className="text-xs text-white/40 flex items-center gap-1"><Spinner size="sm" /> Saving...</div>}
+                </div>
               </div>
               <form onSubmit={handleSubmit}>
                 <div className="grid grid-cols-2 gap-3 mb-3">
@@ -115,37 +131,32 @@ export default function StrengthPage() {
                   </div>
                   <div>
                     <Select label="Session day" id="day_type" options={[{value:'Day 1 — Lower (squat focus)',label:'Day 1 — Lower (squat focus)'},{value:'Day 2 — Upper (bench heavy)',label:'Day 2 — Upper (bench heavy)'},{value:'Day 3 — Lower (hinge + squat accessory)',label:'Day 3 — Lower (hinge + squat accessory)'},{value:'Day 4 — Optional upper + accessories',label:'Day 4 — Optional upper + accessories'}]} />
-                    {lastSession?.day_type && <div className="text-[10px] text-white/25 mt-1">Last session: {lastSession.day_type}</div>}
+                    {lastSession?.day_type && <div className="text-[10px] text-white/25 mt-1">Last: {lastSession.day_type.split('—')[0]?.trim()}</div>}
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="grid grid-cols-3 gap-3 mb-3">
                   <div>
                     <Select label="How did it feel?" id="feel" options={[{value:'Strong — exceeded expectations',label:'Strong — exceeded expectations'},{value:'Solid — hit the targets',label:'Solid — hit the targets'},{value:'Average — got through it',label:'Average — got through it'},{value:'Weak — struggled today',label:'Weak — struggled today'},{value:'Incomplete — cut short',label:'Incomplete — cut short'}]} />
-                    {lastSession?.feel && <div className="text-[10px] text-white/25 mt-1">Last session: {lastSession.feel}</div>}
+                    {lastSession?.feel && <div className="text-[10px] text-white/25 mt-1">Last: {lastSession.feel.split('—')[0]?.trim()}</div>}
                   </div>
                   <div>
                     <Input label="Overall RPE (1–10)" id="rpe" type="number" placeholder="7" min="1" max="10" step="0.5" />
-                    {lastSession?.rpe && <div className="text-[10px] text-white/25 mt-1">Last session: {lastSession.rpe}/10</div>}
+                    {lastSession?.rpe && <div className="text-[10px] text-white/25 mt-1">Last: {lastSession.rpe}/10</div>}
                   </div>
-                </div>
-                <div className="mb-3">
-                  <Input label="Duration (min)" id="duration" type="number" placeholder="65" />
-                  {lastSession?.duration && <div className="text-[10px] text-white/25 mt-1">Last session: {lastSession.duration}min</div>}
+                  <div>
+                    <Input label="Duration (min)" id="duration" type="number" placeholder="65" />
+                    {lastSession?.duration && <div className="text-[10px] text-white/25 mt-1">Last: {lastSession.duration}min</div>}
+                  </div>
                 </div>
                 <Textarea label="Key lifts — weight, sets, reps, RPE per lift" id="session_detail" rows={4} placeholder="e.g. Low bar squat 4x5 @85kg RPE 6.5, felt good. RDL 3x8 @80kg RPE 6. Leg press 3x10..." />
                 {lastSession?.session_detail && <div className="text-[10px] text-white/25 mt-1 mb-3">Last session: {lastSession.session_detail}</div>}
-                <Textarea label="Notes — mobility, soreness, anything to flag for programming" id="session_notes" placeholder="e.g. Hips tight on warm up, loosened by set 3..." />
+                <Textarea label="Notes — mobility, soreness, flags for programming" id="session_notes" placeholder="e.g. Hips tight on warm up, loosened by set 3..." />
                 <Divider />
                 <Button color="blue" disabled={submitting} className="w-full">
-                  {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />Saving...</span> : alreadyLoggedToday ? "Update today's session" : 'Submit to strength coach'}
+                  {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />Saving...</span> : alreadyLogged ? "Update session" : 'Submit to strength coach'}
                 </Button>
               </form>
-              {result && !result.error && (
-                <div className="mt-4 p-4 bg-etg-blue/10 border border-etg-blue/20 rounded-xl">
-                  <div className="text-xs text-etg-blue font-medium mb-2 uppercase tracking-wider">Strength coach response</div>
-                  <p className="text-sm text-white/80 leading-relaxed whitespace-pre-line">{result.output}</p>
-                </div>
-              )}
+              {result && !result.error && <CoachResponse text={result.output} color="blue" />}
               {result?.error && <div className="mt-4 text-sm text-red-400">{result.error}</div>}
             </Card>
           )}
@@ -188,8 +199,8 @@ export default function StrengthPage() {
                     <div className="flex gap-2"><Badge color="blue">RPE {s.rpe}/10</Badge><Badge color="blue">{s.feel?.split('—')[0]?.trim()}</Badge></div>
                   </div>
                   <div className="text-xs text-white/50 mb-2">{s.day_type} · {s.duration}min · Week {s.week_number}</div>
-                  <div className="text-xs text-white/40 mb-3 leading-relaxed">{s.session_detail}</div>
-                  {s.coach_output && <div className="text-xs text-white/50 leading-relaxed border-t border-white/8 pt-2">{s.coach_output}</div>}
+                  <div className="text-xs text-white/40 mb-1 leading-relaxed">{s.session_detail}</div>
+                  {s.coach_output && <CoachResponse text={s.coach_output} color="blue" />}
                 </Card>
               ))}
             </div>

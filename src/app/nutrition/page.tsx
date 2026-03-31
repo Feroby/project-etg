@@ -1,9 +1,10 @@
 'use client'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import Sidebar from '@/components/Sidebar'
 import ChatInterface from '@/components/ChatInterface'
 import TrendChart from '@/components/TrendChart'
+import CoachResponse from '@/components/CoachResponse'
 import { Card, MetricCard, Button, Input, Select, Textarea, Divider, Tabs, Spinner, Badge } from '@/components/ui'
 import { format, parseISO } from 'date-fns'
 
@@ -15,7 +16,8 @@ export default function NutritionPage() {
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [todayLog, setTodayLog] = useState<any>(null)
+  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [selectedLog, setSelectedLog] = useState<any>(null)
   const [yesterdayLog, setYesterdayLog] = useState<any>(null)
   const today = format(new Date(), 'yyyy-MM-dd')
 
@@ -30,7 +32,7 @@ export default function NutritionPage() {
       setSettings(st)
       setChatHistory((ch || []).map(m => ({ role: m.role, content: m.content })))
       const todayEntry = (l || []).find((x: any) => x.date === today)
-      setTodayLog(todayEntry || null)
+      setSelectedLog(todayEntry || null)
       const sorted = (l || []).filter((x: any) => x.date < today).sort((a: any, b: any) => b.date.localeCompare(a.date))
       setYesterdayLog(sorted[0] || null)
       setLoading(false)
@@ -38,13 +40,20 @@ export default function NutritionPage() {
     load()
   }, [])
 
+  function handleDateChange(date: string) {
+    setSelectedDate(date)
+    const existing = logs.find(l => l.date === date)
+    setSelectedLog(existing || null)
+    setResult(null)
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setSubmitting(true)
     setResult(null)
     const fd = new FormData(e.currentTarget)
     const body = {
-      date: today,
+      date: selectedDate,
       weight: parseFloat(fd.get('weight') as string) || null,
       water: parseFloat(fd.get('water') as string) || null,
       calories: parseInt(fd.get('calories') as string) || null,
@@ -53,14 +62,14 @@ export default function NutritionPage() {
       fat: parseInt(fd.get('fat') as string) || null,
       meal_quality: fd.get('meal_quality'),
       nutrition_notes: fd.get('nutrition_notes'),
-      hrv: todayLog?.hrv ?? null,
-      rhr: todayLog?.rhr ?? null,
-      sleep_hours: todayLog?.sleep_hours ?? null,
-      sleep_quality: todayLog?.sleep_quality ?? null,
-      whoop_recovery: todayLog?.whoop_recovery ?? null,
-      whoop_strain: todayLog?.whoop_strain ?? null,
-      soreness: todayLog?.soreness ?? null,
-      recovery_notes: todayLog?.recovery_notes ?? null,
+      hrv: selectedLog?.hrv ?? null,
+      rhr: selectedLog?.rhr ?? null,
+      sleep_hours: selectedLog?.sleep_hours ?? null,
+      sleep_quality: selectedLog?.sleep_quality ?? null,
+      whoop_recovery: selectedLog?.whoop_recovery ?? null,
+      whoop_strain: selectedLog?.whoop_strain ?? null,
+      soreness: selectedLog?.soreness ?? null,
+      recovery_notes: selectedLog?.recovery_notes ?? null,
     }
     fetch('/api/log', {
       method: 'POST',
@@ -68,11 +77,10 @@ export default function NutritionPage() {
       body: JSON.stringify(body),
     }).then(r => r.json()).then(data => {
       setResult(data)
-      setTodayLog({ ...todayLog, ...body })
+      setSelectedLog({ ...selectedLog, ...body })
       supabase.from('daily_logs').select('*').order('date', { ascending: true }).then(({ data: l }) => setLogs(l || []))
-    }).catch(() => {
-      setResult({ error: 'Submission failed. Please try again.' })
-    }).finally(() => setSubmitting(false))
+    }).catch(() => setResult({ error: 'Submission failed. Please try again.' }))
+    .finally(() => setSubmitting(false))
   }
 
   const avg = (key: string) => {
@@ -84,7 +92,8 @@ export default function NutritionPage() {
   const weightData = logs.filter(l => l.weight).map(l => ({ date: format(parseISO(l.date), 'dd/MM'), weight: l.weight }))
   const calData = logs.filter(l => l.calories).map(l => ({ date: format(parseISO(l.date), 'dd/MM'), calories: l.calories }))
   const protData = logs.filter(l => l.protein).map(l => ({ date: format(parseISO(l.date), 'dd/MM'), protein: l.protein }))
-  const alreadyLoggedToday = !!todayLog?.calories
+  const alreadyLogged = !!selectedLog?.calories
+  const isToday = selectedDate === today
 
   if (loading) return (
     <div className="flex h-screen bg-[#0a0a0a]"><Sidebar />
@@ -108,14 +117,21 @@ export default function NutritionPage() {
             <MetricCard label="Avg water" value={avg('water')?.toFixed(1) ?? '—'} unit="L" />
             <MetricCard label="Latest weight" value={latest?.weight ?? '—'} unit="kg" />
           </div>
-          <Tabs tabs={[{ id: 'log', label: 'Log today' }, { id: 'chat', label: 'Chat' }, { id: 'trends', label: 'Trends' }, { id: 'history', label: 'History' }]} active={tab} onChange={setTab} />
+          <Tabs tabs={[{ id: 'log', label: 'Log' }, { id: 'chat', label: 'Chat' }, { id: 'trends', label: 'Trends' }, { id: 'history', label: 'History' }]} active={tab} onChange={setTab} />
 
           {tab === 'log' && (
             <Card accent="green">
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-xs text-white/40">{format(new Date(), 'EEEE, d MMMM yyyy')}</div>
-                {alreadyLoggedToday && !submitting && <div className="text-xs bg-etg-green/20 text-etg-green px-2 py-0.5 rounded-full">Logged today ✓</div>}
-                {submitting && <div className="text-xs text-white/40 flex items-center gap-1"><Spinner size="sm" /> Saving in background...</div>}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <label className="text-xs text-white/40">Date</label>
+                  <input type="date" value={selectedDate} onChange={e => handleDateChange(e.target.value)}
+                    className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-white/30" />
+                  {!isToday && <span className="text-[10px] bg-etg-amber/20 text-etg-amber px-2 py-0.5 rounded-full">Editing past date</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  {alreadyLogged && !submitting && <div className="text-xs bg-etg-green/20 text-etg-green px-2 py-0.5 rounded-full">Logged ✓</div>}
+                  {submitting && <div className="text-xs text-white/40 flex items-center gap-1"><Spinner size="sm" /> Saving...</div>}
+                </div>
               </div>
               <form onSubmit={handleSubmit}>
                 <div className="grid grid-cols-2 gap-3 mb-3">
@@ -136,16 +152,10 @@ export default function NutritionPage() {
                 {yesterdayLog?.nutrition_notes && <div className="text-[10px] text-white/25 mt-1 mb-3">Yesterday: {yesterdayLog.nutrition_notes}</div>}
                 <Divider />
                 <Button color="green" disabled={submitting} className="w-full">
-                  {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />Saving...</span> : alreadyLoggedToday ? "Update today's log" : 'Submit to nutrition coach'}
+                  {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />Saving...</span> : alreadyLogged ? "Update log" : 'Submit to nutrition coach'}
                 </Button>
               </form>
-              {result && !result.error && (
-                <div className="mt-4 p-4 bg-etg-green/10 border border-etg-green/20 rounded-xl">
-                  <div className="text-xs text-etg-green font-medium mb-2 uppercase tracking-wider">Nutrition coach response</div>
-                  <p className="text-sm text-white/80 leading-relaxed whitespace-pre-line">{result.nutrition}</p>
-                  {result.flags?.length > 0 && <div className="mt-3 pt-3 border-t border-white/10">{result.flags.map((f: string, i: number) => <div key={i} className="text-xs text-red-400">{f}</div>)}</div>}
-                </div>
-              )}
+              {result && !result.error && <CoachResponse text={result.nutrition} color="green" />}
               {result?.error && <div className="mt-4 text-sm text-red-400">{result.error}</div>}
             </Card>
           )}
@@ -172,7 +182,7 @@ export default function NutritionPage() {
                     <div className="flex gap-2"><Badge color="green">{l.weight}kg</Badge><Badge color="green">{l.calories}kcal</Badge></div>
                   </div>
                   <div className="grid grid-cols-4 gap-2 mb-3 text-xs text-white/50"><span>P: {l.protein}g</span><span>C: {l.carbs}g</span><span>F: {l.fat}g</span><span>W: {l.water}L</span></div>
-                  {l.nutrition_output && <div className="text-xs text-white/50 leading-relaxed border-t border-white/8 pt-2">{l.nutrition_output}</div>}
+                  {l.nutrition_output && <CoachResponse text={l.nutrition_output} color="green" />}
                 </Card>
               ))}
             </div>
