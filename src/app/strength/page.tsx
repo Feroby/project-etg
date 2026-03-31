@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import Sidebar from '@/components/Sidebar'
 import ChatInterface from '@/components/ChatInterface'
@@ -46,6 +46,16 @@ const DAY_ORDER = [
   'Day 3 — Lower (hinge + squat accessory)',
   'Day 4 — Optional: Bench volume + accessories',
 ]
+
+
+function uniqueExerciseNames(sets: any[]): string[] {
+  const seen: Record<string, boolean> = {}
+  const result: string[] = []
+  sets.forEach((s: any) => {
+    if (!seen[s.exercise_name]) { seen[s.exercise_name] = true; result.push(s.exercise_name) }
+  })
+  return result
+}
 
 type SetRow = { weight: string; reps: string; rpe: string; notes: string }
 type ExerciseLog = { exercise: string; sets: SetRow[] }
@@ -542,7 +552,7 @@ export default function StrengthPage() {
               {sessions.length === 0 && <div className="text-white/30 text-sm text-center py-8">No sessions logged yet.</div>}
               {[...sessions].reverse().map((s) => {
                 const sets = sessionSets[s.id] || []
-                const exerciseNames = [...new Set(sets.map(s => s.exercise_name))]
+                const exerciseNames = uniqueExerciseNames(sets)
                 return (
                   <Card key={s.id}>
                     <div className="flex items-center justify-between mb-3">

@@ -95,7 +95,7 @@ function getStrengthSystemPrompt(settings: any, recentSessions: any[], sessionSe
   const history = recentSessions.length > 0 ? (() => {
     const lines = recentSessions.map((s, i) => {
       const sets = sessionSets?.[s.id] || []
-      const exNames = [...new Set(sets.map((st: any) => st.exercise_name))] as string[]
+      const seenEx: Record<string,boolean> = {}; const exNames: string[] = []; sets.forEach((st:any)=>{ if(!seenEx[st.exercise_name]){seenEx[st.exercise_name]=true;exNames.push(st.exercise_name)} })
       const setDetail = exNames.length > 0
         ? exNames.map((ex: string) => {
             const exSets = sets.filter((st: any) => st.exercise_name === ex)
