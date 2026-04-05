@@ -8,7 +8,6 @@ import CoachResponse from '@/components/CoachResponse'
 import { Card, MetricCard, Button, Input, Textarea, Divider, Tabs, Spinner, Badge } from '@/components/ui'
 import { format, parseISO } from 'date-fns'
 
-// Convert decimal hours to h + m display
 function hoursToHM(h: number | null): string {
   if (!h) return ''
   const hrs = Math.floor(h)
@@ -16,7 +15,6 @@ function hoursToHM(h: number | null): string {
   return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`
 }
 
-// Convert h + m inputs to decimal hours
 function hmToHours(h: string, m: string): number | null {
   const hours = parseInt(h) || 0
   const mins = parseInt(m) || 0
@@ -68,33 +66,35 @@ export default function RecoveryPage() {
     setSubmitting(true)
     setResult(null)
     const fd = new FormData(e.currentTarget)
-    const sleepH = fd.get('sleep_h') as string
-    const sleepM = fd.get('sleep_m') as string
-    const recoveryData = {
+    const body = {
+      coach: 'recovery',
       date: selectedDate,
       hrv: parseInt(fd.get('hrv') as string) || null,
       rhr: parseInt(fd.get('rhr') as string) || null,
-      sleep_hours: hmToHours(sleepH, sleepM),
+      sleep_hours: hmToHours(fd.get('sleep_h') as string, fd.get('sleep_m') as string),
       sleep_quality: parseInt(fd.get('sleep_quality') as string) || null,
       whoop_recovery: parseInt(fd.get('whoop_recovery') as string) || null,
       whoop_strain: parseFloat(fd.get('whoop_strain') as string) || null,
       soreness: parseInt(fd.get('soreness') as string) || null,
       recovery_notes: fd.get('recovery_notes'),
     }
-    const body = selectedLog
-      ? { ...selectedLog, ...recoveryData }
-      : { ...recoveryData, weight: null, calories: null, protein: null, carbs: null, fat: null, water: null }
-
-    fetch('/api/log', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }).then(r => r.json()).then(data => {
+    try {
+      const res = await fetch('/api/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
       setResult(data)
-      setSelectedLog({ ...selectedLog, ...recoveryData })
-      supabase.from('daily_logs').select('*').order('date', { ascending: true }).then(({ data: l }) => setLogs(l || []))
-    }).catch(() => setResult({ error: 'Submission failed. Please try again.' }))
-    .finally(() => setSubmitting(false))
+      setSelectedLog((prev: any) => ({ ...prev, ...body }))
+      const { data: l } = await supabase.from('daily_logs').select('*').order('date', { ascending: true })
+      setLogs(l || [])
+    } catch (err: any) {
+      setResult({ error: err.message || 'Submission failed. Please try again.' })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const avg = (key: string) => {
@@ -142,8 +142,17 @@ export default function RecoveryPage() {
                   {!isToday && <span className="text-[10px] bg-etg-amber/20 text-etg-amber px-2 py-0.5 rounded-full">Editing past date</span>}
                 </div>
                 <div className="flex items-center gap-2">
-                  {alreadyLogged && !submitting && <div className="text-xs bg-etg-amber/20 text-etg-amber px-2 py-0.5 rounded-full">Logged ✓</div>}
-                  {submitting && <div className="text-xs text-white/40 flex items-center gap-1"><Spinner size="sm" /> Saving...</div>}
+                  {result?.saved && !submitting && (
+                    <div className="text-xs bg-etg-amber/20 text-etg-amber px-2.5 py-1 rounded-full flex items-center gap-1.5">
+                      <span>✓</span> Saved &amp; sent to coach
+                    </div>
+                  )}
+                  {alreadyLogged && !submitting && !result?.saved && (
+                    <div className="text-xs bg-etg-amber/20 text-etg-amber px-2 py-0.5 rounded-full">Logged ✓</div>
+                  )}
+                  {submitting && (
+                    <div className="text-xs text-white/40 flex items-center gap-1.5"><Spinner size="sm" /> Sending to coach...</div>
+                  )}
                 </div>
               </div>
               <form onSubmit={handleSubmit}>
@@ -180,7 +189,7 @@ export default function RecoveryPage() {
                 {yesterdayLog?.recovery_notes && <div className="text-[10px] text-white/25 mt-1 mb-3">Yesterday: {yesterdayLog.recovery_notes}</div>}
                 <Divider />
                 <Button color="amber" disabled={submitting} className="w-full">
-                  {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />Saving...</span> : alreadyLogged ? "Update log" : 'Submit to recovery coach'}
+                  {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />Sending to coach...</span> : alreadyLogged ? 'Update log' : 'Submit to recovery coach'}
                 </Button>
               </form>
               {result && !result.error && <CoachResponse text={result.recovery} color="amber" />}

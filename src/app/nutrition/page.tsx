@@ -53,6 +53,7 @@ export default function NutritionPage() {
     setResult(null)
     const fd = new FormData(e.currentTarget)
     const body = {
+      coach: 'nutrition',
       date: selectedDate,
       weight: parseFloat(fd.get('weight') as string) || null,
       water: parseFloat(fd.get('water') as string) || null,
@@ -62,25 +63,24 @@ export default function NutritionPage() {
       fat: parseInt(fd.get('fat') as string) || null,
       meal_quality: fd.get('meal_quality'),
       nutrition_notes: fd.get('nutrition_notes'),
-      hrv: selectedLog?.hrv ?? null,
-      rhr: selectedLog?.rhr ?? null,
-      sleep_hours: selectedLog?.sleep_hours ?? null,
-      sleep_quality: selectedLog?.sleep_quality ?? null,
-      whoop_recovery: selectedLog?.whoop_recovery ?? null,
-      whoop_strain: selectedLog?.whoop_strain ?? null,
-      soreness: selectedLog?.soreness ?? null,
-      recovery_notes: selectedLog?.recovery_notes ?? null,
     }
-    fetch('/api/log', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }).then(r => r.json()).then(data => {
+    try {
+      const res = await fetch('/api/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
       setResult(data)
-      setSelectedLog({ ...selectedLog, ...body })
-      supabase.from('daily_logs').select('*').order('date', { ascending: true }).then(({ data: l }) => setLogs(l || []))
-    }).catch(() => setResult({ error: 'Submission failed. Please try again.' }))
-    .finally(() => setSubmitting(false))
+      setSelectedLog((prev: any) => ({ ...prev, ...body }))
+      const { data: l } = await supabase.from('daily_logs').select('*').order('date', { ascending: true })
+      setLogs(l || [])
+    } catch (err: any) {
+      setResult({ error: err.message || 'Submission failed. Please try again.' })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const avg = (key: string) => {
@@ -129,8 +129,17 @@ export default function NutritionPage() {
                   {!isToday && <span className="text-[10px] bg-etg-amber/20 text-etg-amber px-2 py-0.5 rounded-full">Editing past date</span>}
                 </div>
                 <div className="flex items-center gap-2">
-                  {alreadyLogged && !submitting && <div className="text-xs bg-etg-green/20 text-etg-green px-2 py-0.5 rounded-full">Logged ✓</div>}
-                  {submitting && <div className="text-xs text-white/40 flex items-center gap-1"><Spinner size="sm" /> Saving...</div>}
+                  {result?.saved && !submitting && (
+                    <div className="text-xs bg-etg-green/20 text-etg-green px-2.5 py-1 rounded-full flex items-center gap-1.5">
+                      <span>✓</span> Saved &amp; sent to coach
+                    </div>
+                  )}
+                  {alreadyLogged && !submitting && !result?.saved && (
+                    <div className="text-xs bg-etg-green/20 text-etg-green px-2 py-0.5 rounded-full">Logged ✓</div>
+                  )}
+                  {submitting && (
+                    <div className="text-xs text-white/40 flex items-center gap-1.5"><Spinner size="sm" /> Sending to coach...</div>
+                  )}
                 </div>
               </div>
               <form onSubmit={handleSubmit}>
@@ -152,7 +161,7 @@ export default function NutritionPage() {
                 {yesterdayLog?.nutrition_notes && <div className="text-[10px] text-white/25 mt-1 mb-3">Yesterday: {yesterdayLog.nutrition_notes}</div>}
                 <Divider />
                 <Button color="green" disabled={submitting} className="w-full">
-                  {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />Saving...</span> : alreadyLogged ? "Update log" : 'Submit to nutrition coach'}
+                  {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />Sending to coach...</span> : alreadyLogged ? 'Update log' : 'Submit to nutrition coach'}
                 </Button>
               </form>
               {result && !result.error && <CoachResponse text={result.nutrition} color="green" />}
