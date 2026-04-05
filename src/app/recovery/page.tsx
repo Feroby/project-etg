@@ -56,8 +56,7 @@ export default function RecoveryPage() {
 
   function handleDateChange(date: string) {
     setSelectedDate(date)
-    const existing = logs.find(l => l.date === date)
-    setSelectedLog(existing || null)
+    setSelectedLog(logs.find(l => l.date === date) || null)
     setResult(null)
   }
 
@@ -91,7 +90,7 @@ export default function RecoveryPage() {
       const { data: l } = await supabase.from('daily_logs').select('*').order('date', { ascending: true })
       setLogs(l || [])
     } catch (err: any) {
-      setResult({ error: err.message || 'Submission failed. Please try again.' })
+      setResult({ error: err.message || 'Submission failed.' })
     } finally {
       setSubmitting(false)
     }
@@ -99,7 +98,7 @@ export default function RecoveryPage() {
 
   const avg = (key: string) => {
     const vals = logs.map(l => l[key]).filter(Boolean)
-    return vals.length ? (vals.reduce((a: number, b: number) => a + b, 0) / vals.length) : null
+    return vals.length ? vals.reduce((a: number, b: number) => a + b, 0) / vals.length : null
   }
 
   const hrvData = logs.filter(l => l.hrv).map(l => ({ date: format(parseISO(l.date), 'dd/MM'), hrv: l.hrv }))
@@ -142,17 +141,9 @@ export default function RecoveryPage() {
                   {!isToday && <span className="text-[10px] bg-etg-amber/20 text-etg-amber px-2 py-0.5 rounded-full">Editing past date</span>}
                 </div>
                 <div className="flex items-center gap-2">
-                  {result?.saved && !submitting && (
-                    <div className="text-xs bg-etg-amber/20 text-etg-amber px-2.5 py-1 rounded-full flex items-center gap-1.5">
-                      <span>✓</span> Saved &amp; sent to coach
-                    </div>
-                  )}
-                  {alreadyLogged && !submitting && !result?.saved && (
-                    <div className="text-xs bg-etg-amber/20 text-etg-amber px-2 py-0.5 rounded-full">Logged ✓</div>
-                  )}
-                  {submitting && (
-                    <div className="text-xs text-white/40 flex items-center gap-1.5"><Spinner size="sm" /> Sending to coach...</div>
-                  )}
+                  {result?.saved && !submitting && <div className="text-xs bg-etg-amber/20 text-etg-amber px-2.5 py-1 rounded-full">✓ Saved & sent to coach</div>}
+                  {alreadyLogged && !submitting && !result?.saved && <div className="text-xs bg-etg-amber/20 text-etg-amber px-2 py-0.5 rounded-full">Logged ✓</div>}
+                  {submitting && <div className="text-xs text-white/40 flex items-center gap-1.5"><Spinner size="sm" /> Sending to coach...</div>}
                 </div>
               </div>
               <form onSubmit={handleSubmit}>
@@ -167,12 +158,13 @@ export default function RecoveryPage() {
                     <label className="block text-xs text-white/50 mb-1">Sleep</label>
                     <div className="flex gap-1.5">
                       <div className="relative flex-1">
-                        <input id="sleep_h" name="sleep_h" type="number" placeholder="7" min="0" max="16"
+                        <input id="sleep_h" name="sleep_h" type="number" placeholder="7" min="0" max="16" step="1"
                           className="bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-sm text-white placeholder-white/20 focus:outline-none focus:border-white/30 w-full pr-5" />
                         <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-white/30">h</span>
                       </div>
                       <div className="relative flex-1">
-                        <input id="sleep_m" name="sleep_m" type="number" placeholder="30" min="0" max="59" step="5"
+                        {/* step="1" for exact Whoop values e.g. 7h13m */}
+                        <input id="sleep_m" name="sleep_m" type="number" placeholder="13" min="0" max="59" step="1"
                           className="bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-sm text-white placeholder-white/20 focus:outline-none focus:border-white/30 w-full pr-5" />
                         <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-white/30">m</span>
                       </div>
@@ -219,10 +211,8 @@ export default function RecoveryPage() {
                     <div className="flex gap-2"><Badge color="amber">HRV {l.hrv}ms</Badge><Badge color="amber">{l.whoop_recovery}% rec</Badge></div>
                   </div>
                   <div className="grid grid-cols-4 gap-2 mb-3 text-xs text-white/50">
-                    <span>RHR: {l.rhr}bpm</span>
-                    <span>Sleep: {hoursToHM(l.sleep_hours)}</span>
-                    <span>Strain: {l.whoop_strain}</span>
-                    <span>Soreness: {l.soreness}/10</span>
+                    <span>RHR: {l.rhr}bpm</span><span>Sleep: {hoursToHM(l.sleep_hours)}</span>
+                    <span>Strain: {l.whoop_strain}</span><span>Soreness: {l.soreness}/10</span>
                   </div>
                   {l.recovery_output && <CoachResponse text={l.recovery_output} color="amber" />}
                 </Card>
