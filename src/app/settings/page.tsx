@@ -229,7 +229,7 @@ export default function SettingsPage() {
                 <div className="mb-3 flex flex-col gap-1">
                   <label className="text-xs text-white/50">Primary goal</label>
                   <select value={form.training_goal ?? ''} onChange={e => update('training_goal', e.target.value)}
-                    className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-white/30 w-full">
+                    className="bg-[#1a1a1a] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-white/30 w-full [&>option]:bg-[#1a1a1a] [&>option]:text-white">
                     <option value="">Select...</option>
                     <option value="Muscle gain (bulk)">Muscle gain (bulk)</option>
                     <option value="Fat loss (cut)">Fat loss (cut)</option>

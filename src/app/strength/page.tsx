@@ -427,7 +427,7 @@ export default function StrengthPage() {
                       <div className="flex flex-col gap-1">
                         <label className="text-[10px] text-white/40">Feel</label>
                         <select value={logFeel} onChange={e => setLogFeel(e.target.value)}
-                          className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none">
+                          className="bg-[#1a1a1a] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none [&>option]:bg-[#1a1a1a] [&>option]:text-white">
                           <option value="">Select...</option>
                           <option value="Strong — exceeded expectations">Strong</option>
                           <option value="Solid — hit the targets">Solid</option>
