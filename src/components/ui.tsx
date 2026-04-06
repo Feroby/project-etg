@@ -80,13 +80,7 @@ export function Input({ label, id, type = 'text', placeholder, step, min, max, c
     <div className={clsx('flex flex-col gap-1', className)}>
       <label htmlFor={id} className="text-xs text-white/50">{label}</label>
       <input
-        id={id}
-        name={id}
-        type={type}
-        placeholder={placeholder}
-        step={step}
-        min={min}
-        max={max}
+        id={id} name={id} type={type} placeholder={placeholder} step={step} min={min} max={max}
         className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/20 focus:outline-none focus:border-white/30 w-full"
       />
     </div>
@@ -100,9 +94,8 @@ export function Select({ label, id, options, className }: {
     <div className={clsx('flex flex-col gap-1', className)}>
       <label htmlFor={id} className="text-xs text-white/50">{label}</label>
       <select
-        id={id}
-        name={id}
-        className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-white/30 w-full"
+        id={id} name={id}
+        className="bg-[#1a1a1a] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-white/30 w-full cursor-pointer [&>option]:bg-[#1a1a1a] [&>option]:text-white"
       >
         <option value="">Select...</option>
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -118,10 +111,7 @@ export function Textarea({ label, id, placeholder, rows = 3, className }: {
     <div className={clsx('flex flex-col gap-1', className)}>
       <label htmlFor={id} className="text-xs text-white/50">{label}</label>
       <textarea
-        id={id}
-        name={id}
-        placeholder={placeholder}
-        rows={rows}
+        id={id} name={id} placeholder={placeholder} rows={rows}
         className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/20 focus:outline-none focus:border-white/30 w-full resize-none"
       />
     </div>
