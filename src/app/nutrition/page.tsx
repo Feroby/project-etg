@@ -120,7 +120,6 @@ export default function NutritionPage() {
       fat: parseInt(fFat) || null,
       meal_quality: fMealQuality || null,
       nutrition_notes: fNotes || null,
-      // Food items from scan — invisible to UI, passed to coach context
       food_items: scannedFoodItems || null,
     }
     try {
@@ -232,7 +231,6 @@ export default function NutritionPage() {
                               {scanResult.fat && <span className="text-[10px] bg-etg-green/10 text-etg-green px-1.5 py-0.5 rounded">F {scanResult.fat}g</span>}
                               {scanResult.water && <span className="text-[10px] bg-etg-green/10 text-etg-green px-1.5 py-0.5 rounded">{scanResult.water}L water</span>}
                             </div>
-                            {/* Show food items were captured — not the full list, just a count */}
                             {scannedFoodItems && (
                               <div className="text-[10px] text-white/30 flex items-center gap-1">
                                 <span className="text-etg-green">✓</span> Food breakdown captured — coach will use this for detailed analysis
@@ -270,8 +268,9 @@ export default function NutritionPage() {
                 </div>
                 <div className="mb-3">
                   <label className="text-xs text-white/50 block mb-1">Meal quality</label>
+                  {/* FIXED: bg-[#1a1a1a] so native dropdown list isn't white */}
                   <select value={fMealQuality} onChange={e => setFMealQuality(e.target.value)}
-                    className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-white/30 w-full">
+                    className="bg-[#1a1a1a] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-white/30 w-full [&>option]:bg-[#1a1a1a] [&>option]:text-white">
                     <option value="">Select...</option>
                     <option value="Excellent — clean, on plan">Excellent — clean, on plan</option>
                     <option value="Good — mostly on track">Good — mostly on track</option>
