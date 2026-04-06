@@ -6,7 +6,6 @@ export async function POST(req: NextRequest) {
   try {
     const { coach, messages } = await req.json()
 
-    // Only fetch session_sets for strength coach — skip for nutrition/recovery
     const fetchSets = coach === 'strength'
     const [{ data: settings }, { data: logsRaw }, { data: sessionsRaw }, setsResult] = await Promise.all([
       supabase.from('settings').select('*').single(),
@@ -28,12 +27,14 @@ export async function POST(req: NextRequest) {
 
     const reply = await runCoachChat(coach, messages, settings, logs, sessions, { sessionSets })
 
-    // Save messages — fire and forget, don't block response
+    // Fire-and-forget — wrap in Promise.resolve so .catch() is available on all TS targets
     const lastUser = messages[messages.length - 1]
-    supabase.from('chat_messages').insert([
-      { coach, role: 'user', content: lastUser.content },
-      { coach, role: 'assistant', content: reply },
-    ]).then(() => {}).catch((e: any) => console.error('Chat save failed:', e))
+    Promise.resolve(
+      supabase.from('chat_messages').insert([
+        { coach, role: 'user', content: lastUser.content },
+        { coach, role: 'assistant', content: reply },
+      ])
+    ).catch((e: any) => console.error('Chat save failed:', e))
 
     return NextResponse.json({ reply })
   } catch (e: any) {
