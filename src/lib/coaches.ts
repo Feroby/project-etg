@@ -5,13 +5,15 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export type Coach = 'nutrition' | 'recovery' | 'strength' | 'central'
 
-// Static import, fire-and-forget — never blocks a response
+// Fire-and-forget usage tracking — never blocks a response
 function trackUsage(coach: Coach, inputTokens: number, outputTokens: number): void {
   const cost = (inputTokens / 1_000_000) * 3.0 + (outputTokens / 1_000_000) * 15.0
-  supabase.from('api_usage').insert({
-    coach, input_tokens: inputTokens, output_tokens: outputTokens,
-    total_tokens: inputTokens + outputTokens, estimated_cost_usd: cost,
-  }).then(() => {}).catch((e: any) => console.error('Usage tracking failed:', e))
+  Promise.resolve(
+    supabase.from('api_usage').insert({
+      coach, input_tokens: inputTokens, output_tokens: outputTokens,
+      total_tokens: inputTokens + outputTokens, estimated_cost_usd: cost,
+    })
+  ).catch((e: any) => console.error('Usage tracking failed:', e))
 }
 
 function buildSettingsBlock(settings: any): string {
@@ -113,7 +115,6 @@ export async function runCoachChat(
   recentSessions: any[],
   extra?: { sessionSets?: Record<string, any[]> }
 ): Promise<string> {
-  // Log responses are short — 500 tokens is plenty. Chat gets full 1024.
   const isSingleLogMessage = messages.length === 1
   const maxTokens = isSingleLogMessage ? 500 : 1024
 
