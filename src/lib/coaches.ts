@@ -5,7 +5,6 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export type Coach = 'nutrition' | 'recovery' | 'strength' | 'central'
 
-// Fire-and-forget usage tracking — never blocks a response
 function trackUsage(coach: Coach, inputTokens: number, outputTokens: number): void {
   const cost = (inputTokens / 1_000_000) * 3.0 + (outputTokens / 1_000_000) * 15.0
   Promise.resolve(
@@ -29,7 +28,11 @@ function buildSettingsBlock(settings: any): string {
 
 function getNutritionSystemPrompt(settings: any, recentLogs: any[]): string {
   const history = recentLogs.length > 0
-    ? `RECENT NUTRITION (${recentLogs.length} days):\n${recentLogs.map((l, i) => `Day -${recentLogs.length - i}: W=${l.weight}kg Cal=${l.calories} P=${l.protein}g C=${l.carbs}g F=${l.fat}g H2O=${l.water}L Q="${l.meal_quality}"`).join('\n')}`
+    ? `RECENT NUTRITION (${recentLogs.length} days):\n${recentLogs.map((l, i) => {
+        const base = `Day -${recentLogs.length - i}: W=${l.weight}kg Cal=${l.calories} P=${l.protein}g C=${l.carbs}g F=${l.fat}g H2O=${l.water}L Q="${l.meal_quality}"`
+        // Include food breakdown when available — enables per-food coaching
+        return l.food_items ? `${base}\n  Foods: ${l.food_items}` : base
+      }).join('\n')}`
     : 'RECENT HISTORY: No logs yet.'
   return `You are Dr. Sarah Mitchell, PhD Sports Nutrition. Direct, data-driven, expert.
 
@@ -37,7 +40,8 @@ ${buildSettingsBlock(settings)}
 
 ${history}
 
-- Reference athlete targets directly when asked — goal weight, macros, calories etc are all above
+- Reference athlete targets directly when asked
+- When food_items data is present: identify high/low protein sources, flag processed foods, suggest specific food swaps to hit targets better
 - Flag: protein <1.6g/kg, calories >500 below target 2+ days, weight plateau >${settings?.weight_plateau_days || 10} days
 - Log responses: 3-4 sentences max. Chat: as long as needed.`
 }

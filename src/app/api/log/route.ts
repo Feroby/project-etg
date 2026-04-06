@@ -7,7 +7,6 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { coach } = body // 'nutrition' | 'recovery'
 
-    // Fetch settings, recent logs, and existing log for this date — all in parallel
     const [{ data: settings }, { data: logs }, existingResult] = await Promise.all([
       supabase.from('settings').select('*').single(),
       supabase.from('daily_logs').select('*').order('date', { ascending: true }).limit(14),
@@ -17,7 +16,6 @@ export async function POST(req: NextRequest) {
     const base = existingResult.data || {}
     const recentLogs = (logs || []).filter((l: any) => l.date !== body.date)
 
-    // Build upsert — only overwrite the submitting coach's fields, preserve the other domain
     const upsertRow: any = { date: body.date }
     if (coach === 'nutrition') {
       Object.assign(upsertRow, {
@@ -29,7 +27,9 @@ export async function POST(req: NextRequest) {
         water: body.water ?? base.water ?? null,
         meal_quality: body.meal_quality ?? base.meal_quality ?? null,
         nutrition_notes: body.nutrition_notes ?? base.nutrition_notes ?? null,
-        // Preserve recovery
+        // Store food items if provided by scan — preserve existing if not rescan
+        food_items: body.food_items ?? base.food_items ?? null,
+        // Preserve recovery domain
         hrv: base.hrv ?? null, rhr: base.rhr ?? null, sleep_hours: base.sleep_hours ?? null,
         sleep_quality: base.sleep_quality ?? null, whoop_recovery: base.whoop_recovery ?? null,
         whoop_strain: base.whoop_strain ?? null, soreness: base.soreness ?? null,
@@ -44,34 +44,38 @@ export async function POST(req: NextRequest) {
         whoop_strain: body.whoop_strain ?? base.whoop_strain ?? null,
         soreness: body.soreness ?? base.soreness ?? null,
         recovery_notes: body.recovery_notes ?? base.recovery_notes ?? null,
-        // Preserve nutrition
+        // Preserve nutrition domain
         weight: base.weight ?? null, calories: base.calories ?? null, protein: base.protein ?? null,
         carbs: base.carbs ?? null, fat: base.fat ?? null, water: base.water ?? null,
         meal_quality: base.meal_quality ?? null, nutrition_notes: base.nutrition_notes ?? null,
+        food_items: base.food_items ?? null,
       })
     }
 
-    // Build coach message and run specialist — this is the slow part, nothing else needed first
-    const msg = coach === 'nutrition'
-      ? `Nutrition log: Weight=${body.weight}kg Water=${body.water}L Cal=${body.calories} P=${body.protein}g C=${body.carbs}g F=${body.fat}g Quality="${body.meal_quality}" Notes="${body.nutrition_notes || 'none'}"`
-      : `Recovery log: HRV=${body.hrv}ms RHR=${body.rhr}bpm Sleep=${body.sleep_hours}hr(q:${body.sleep_quality}/10) WhoopRec=${body.whoop_recovery}% Strain=${body.whoop_strain} Soreness=${body.soreness}/10 Notes="${body.recovery_notes || 'none'}"`
+    // Build coach message — include food breakdown if available
+    let msg: string
+    if (coach === 'nutrition') {
+      const foodSection = upsertRow.food_items
+        ? `\nFood breakdown: ${upsertRow.food_items}`
+        : ''
+      msg = `Nutrition log: Weight=${body.weight}kg Water=${body.water}L Cal=${body.calories} P=${body.protein}g C=${body.carbs}g F=${body.fat}g Quality="${body.meal_quality}" Notes="${body.nutrition_notes || 'none'}"${foodSection}`
+    } else {
+      msg = `Recovery log: HRV=${body.hrv}ms RHR=${body.rhr}bpm Sleep=${body.sleep_hours}hr(q:${body.sleep_quality}/10) WhoopRec=${body.whoop_recovery}% Strain=${body.whoop_strain} Soreness=${body.soreness}/10 Notes="${body.recovery_notes || 'none'}"`
+    }
 
-    // Run specialist coach — await this, user needs the response
     const specialistOutput = await runCoachChat(
       coach as 'nutrition' | 'recovery',
       [{ role: 'user', content: msg }],
       settings, recentLogs, []
     )
 
-    // Assign specialist output
     upsertRow.nutrition_output = coach === 'nutrition' ? specialistOutput : (base.nutrition_output ?? null)
     upsertRow.recovery_output = coach === 'recovery' ? specialistOutput : (base.recovery_output ?? null)
 
-    // Save to DB immediately — don't wait for central
     const { error } = await supabase.from('daily_logs').upsert(upsertRow, { onConflict: 'date' })
     if (error) throw error
 
-    // Fire central coach and guardrails async — user already has their response
+    // Central + guardrails async
     const allLogs = [...recentLogs, upsertRow]
     Promise.all([
       runCoachChat('central',

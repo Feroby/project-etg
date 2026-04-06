@@ -6,51 +6,45 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 export async function POST(req: NextRequest) {
   try {
     const { imageBase64, mediaType } = await req.json()
-
     if (!imageBase64) return NextResponse.json({ error: 'No image provided' }, { status: 400 })
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 500,
+      max_tokens: 800,
       messages: [{
         role: 'user',
         content: [
           {
             type: 'image',
-            source: {
-              type: 'base64',
-              media_type: mediaType || 'image/jpeg',
-              data: imageBase64,
-            },
+            source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 },
           },
           {
             type: 'text',
-            text: `You are a nutrition data extractor. Analyse this food/nutrition tracking screenshot (e.g. MyFitnessPal, Cronometer, or any food diary).
+            text: `Analyse this nutrition tracking screenshot (MyFitnessPal, Cronometer, etc).
 
-Extract the DAILY TOTALS only (not individual meals). Return ONLY a JSON object with no markdown, no explanation:
+Return ONLY a JSON object with no markdown fences:
 {
-  "calories": <number or null>,
-  "protein": <number in grams or null>,
-  "carbs": <number in grams or null>,
-  "fat": <number in grams or null>,
-  "water": <number in litres or null>,
-  "meal_summary": "<brief 1-2 sentence summary of what was eaten, key foods mentioned>",
+  "calories": <daily total or null>,
+  "protein": <grams or null>,
+  "carbs": <grams or null>,
+  "fat": <grams or null>,
+  "water": <litres or null>,
+  "food_items": "<compact food list, e.g.: Oats 60g (P:7 C:40 F:4), Chicken breast 180g (P:42 C:0 F:4), Banana (P:1 C:27 F:0), Whey shake (P:25 C:5 F:2)>",
+  "meal_summary": "<1 sentence: key protein sources and whether it looks on/off track>",
   "confidence": "high" | "medium" | "low"
 }
 
 Rules:
-- Only extract values that are clearly visible — use null for anything uncertain
-- For water: convert ml to litres (e.g. 2500ml = 2.5)
-- Ignore individual food items, only use totals/summary rows
-- If this is not a nutrition tracking screenshot, return all nulls with confidence "low"`,
+- food_items: list individual foods with portion and per-item macros in compact format. Max ~10 items. Skip condiments/trivial items. If no individual foods visible, use null.
+- For water: convert ml to litres (2500ml = 2.5)
+- Use daily totals for top-level macros, not individual meals
+- If not a nutrition screenshot, return all nulls with confidence "low"`,
           },
         ],
       }],
     })
 
     const text = response.content.map(b => b.type === 'text' ? b.text : '').join('').trim()
-
-    // Strip any accidental markdown fences
     const cleaned = text.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
     const parsed = JSON.parse(cleaned)
 
