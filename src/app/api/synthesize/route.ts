@@ -8,25 +8,23 @@ export async function POST(req: NextRequest) {
   try {
     const { days = 3 } = await req.json()
 
-    // Fetch everything needed in parallel
-    const [{ data: settings }, { data: logs }, { data: sessions }, { data: setsRaw }] = await Promise.all([
+    const [{ data: settings }, { data: logs }, { data: sessions }, { data: setsRaw }, { data: existingDirectives }] = await Promise.all([
       supabase.from('settings').select('*').single(),
       supabase.from('daily_logs').select('*').order('date', { ascending: false }).limit(days),
       supabase.from('strength_sessions').select('*').order('date', { ascending: false }).limit(days * 2),
       supabase.from('session_sets').select('*').order('set_number', { ascending: true }),
+      supabase.from('coach_directives').select('*').eq('active', true).order('created_at', { ascending: false }).limit(20),
     ])
 
     const recentLogs = (logs || []).reverse()
     const recentSessions = (sessions || []).reverse()
 
-    // Group sets by session
     const sessionSets: Record<string, any[]> = {}
     ;(setsRaw || []).forEach((st: any) => {
       if (!sessionSets[st.session_id]) sessionSets[st.session_id] = []
       sessionSets[st.session_id].push(st)
     })
 
-    // Build rich data block
     const nutritionBlock = recentLogs.map(l => {
       const lines = [`${l.date}: Cal=${l.calories ?? '—'} P=${l.protein ?? '—'}g C=${l.carbs ?? '—'}g F=${l.fat ?? '—'}g Water=${l.water ?? '—'}L Weight=${l.weight ?? '—'}kg Quality="${l.meal_quality ?? '—'}"`]
       if (l.food_items) lines.push(`  Foods: ${l.food_items}`)
@@ -54,7 +52,11 @@ Calories: ${settings.daily_calories}kcal | P: ${settings.daily_protein}g | C: ${
 HRV baseline: ${settings.hrv_baseline}ms | Min: ${settings.hrv_minimum}ms | Sleep target: ${settings.sleep_target}hr
 Training: ${settings.current_block} | Goal: ${settings.training_goal}` : 'Settings not configured'
 
-    const prompt = `You are the Head Performance Coach synthesising ${days} day(s) of athlete data. Produce a structured JSON report. Return ONLY valid JSON, no markdown fences.
+    const currentDirectivesBlock = (existingDirectives || []).length > 0
+      ? `\nCURRENTLY ACTIVE DIRECTIVES (from previous synthesis):\n${(existingDirectives || []).map(d => `[${d.target_coach.toUpperCase()}][${d.priority}] ${d.directive}`).join('\n')}`
+      : '\nNo active directives from previous synthesis.'
+
+    const prompt = `You are the Head Performance Coach synthesising ${days} day(s) of athlete data. Produce a structured JSON report AND issue directives to your specialist coaches. Return ONLY valid JSON, no markdown fences.
 
 ATHLETE SETTINGS:
 ${settingsBlock}
@@ -67,51 +69,55 @@ ${recoveryBlock || 'No recovery data'}
 
 STRENGTH DATA (${days}d):
 ${strengthBlock || 'No strength data'}
+${currentDirectivesBlock}
 
 Return this exact JSON structure:
 {
   "period": "<e.g. 'Last 3 days: Apr 3–5'>",
   "overall_score": <1-10 integer>,
-  "headline": "<1 sentence punchy summary of how the athlete is doing overall>",
+  "headline": "<1 sentence punchy summary of overall athlete status>",
   "domains": {
     "nutrition": {
       "score": <1-10>,
       "status": "on_track" | "attention" | "critical",
-      "summary": "<2-3 sentences: what's working, what needs fixing, specific numbers>",
+      "summary": "<2-3 sentences with specific numbers>",
       "key_wins": ["<specific win>"],
       "flags": ["<specific concern with numbers>"]
     },
     "recovery": {
       "score": <1-10>,
       "status": "on_track" | "attention" | "critical",
-      "summary": "<2-3 sentences: HRV trend, sleep, readiness assessment>",
+      "summary": "<2-3 sentences with specific numbers>",
       "key_wins": ["<specific win>"],
       "flags": ["<specific concern with numbers>"]
     },
     "strength": {
       "score": <1-10>,
       "status": "on_track" | "attention" | "critical",
-      "summary": "<2-3 sentences: session quality, load vs prescription, progression notes>",
+      "summary": "<2-3 sentences with specific numbers>",
       "key_wins": ["<specific win>"],
       "flags": ["<specific concern with numbers>"]
     }
   },
   "cross_domain_insights": [
-    "<insight that connects 2+ domains e.g. 'Low protein on rest days correlating with HRV dip'>",
+    "<insight connecting 2+ domains with specific data>",
     "<insight>",
     "<insight if warranted>"
   ],
   "directives": [
-    { "priority": "high" | "medium", "action": "<specific actionable directive>", "domain": "nutrition" | "recovery" | "strength" | "all" },
-    { "priority": "high" | "medium", "action": "<directive>", "domain": "..." },
-    { "priority": "high" | "medium", "action": "<directive>", "domain": "..." }
+    { "priority": "high" | "medium", "action": "<directive shown to athlete>", "domain": "nutrition" | "recovery" | "strength" | "all" }
   ],
-  "next_checkpoint": "<what to look for / measure next>"
+  "coach_notes": {
+    "nutrition": "<standing instruction for Dr. Mitchell — what to watch for, emphasise, or push back on in upcoming logs/chats. Be specific. E.g: 'Athlete is under-eating protein consistently. Challenge every log where protein <180g. Suggest specific high-protein food swaps. Do not accept <160g without flagging.'>",
+    "recovery": "<standing instruction for Dr. Hartley — what patterns to monitor, thresholds to enforce, or adjustments to make. E.g: 'HRV trending down. Flag any session where strain >10 until HRV recovers above baseline. Push back on training on days with recovery <40%.'>",
+    "strength": "<standing instruction for Dr. Reid — programming adjustments, load guidance, technique flags to watch. E.g: 'Squat reintroduction going well. Athlete can progress load by 2.5kg per session next week if RPE stays at 6. Flag any squat RPE above 7.5 this week.'>"
+  },
+  "next_checkpoint": "<what to monitor next>"
 }`
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 1500,
+      max_tokens: 1800,
       messages: [{ role: 'user', content: prompt }],
     })
 
@@ -119,12 +125,23 @@ Return this exact JSON structure:
     const cleaned = raw.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
     const report = JSON.parse(cleaned)
 
-    // Save to DB async — don't block
-    if (recentLogs.length > 0) {
-      const latest = recentLogs[recentLogs.length - 1]
-      Promise.resolve(
-        supabase.from('daily_logs').update({ central_output: report.headline + '\n\n' + report.domains.nutrition.summary + '\n\n' + report.domains.recovery.summary }).eq('date', latest.date)
-      ).catch(() => {})
+    // Save directives to DB — deactivate old ones first, then insert new
+    const coaches: Array<'nutrition' | 'recovery' | 'strength'> = ['nutrition', 'recovery', 'strength']
+    await supabase.from('coach_directives').update({ active: false }).eq('active', true).eq('source', 'central')
+
+    if (report.coach_notes) {
+      const toInsert = coaches
+        .filter(c => report.coach_notes[c] && report.coach_notes[c].trim())
+        .map(c => ({
+          target_coach: c,
+          directive: report.coach_notes[c].trim(),
+          priority: 'medium' as const,
+          source: 'central',
+          active: true,
+        }))
+      if (toInsert.length > 0) {
+        await supabase.from('coach_directives').insert(toInsert)
+      }
     }
 
     // Track usage
@@ -136,7 +153,10 @@ Return this exact JSON structure:
       })
     ).catch(() => {})
 
-    return NextResponse.json({ report, generatedAt: new Date().toISOString() })
+    // Fetch the newly saved directives to return to UI
+    const { data: newDirectives } = await supabase.from('coach_directives').select('*').eq('active', true).order('target_coach')
+
+    return NextResponse.json({ report, generatedAt: new Date().toISOString(), directives: newDirectives || [] })
   } catch (e: any) {
     console.error('Synthesize error:', e)
     return NextResponse.json({ error: e.message }, { status: 500 })

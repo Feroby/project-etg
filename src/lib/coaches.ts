@@ -26,34 +26,43 @@ function buildSettingsBlock(settings: any): string {
 - Background: ${settings.athlete_background ?? 'not set'}`
 }
 
-function getNutritionSystemPrompt(settings: any, recentLogs: any[]): string {
+// Formats active central directives for a specialist's system prompt
+function buildDirectivesBlock(directives: any[]): string {
+  if (!directives || directives.length === 0) return ''
+  const sorted = [...directives].sort((a, b) => (a.priority === 'high' ? -1 : 1))
+  return `\nDIRECTIVES FROM HEAD COACH (follow these — they override your defaults):
+${sorted.map(d => `[${d.priority.toUpperCase()}] ${d.directive}`).join('\n')}`
+}
+
+function getNutritionSystemPrompt(settings: any, recentLogs: any[], directives: any[] = []): string {
   const history = recentLogs.length > 0
     ? `RECENT NUTRITION (${recentLogs.length} days):\n${recentLogs.map((l, i) => {
         const base = `Day -${recentLogs.length - i}: W=${l.weight}kg Cal=${l.calories} P=${l.protein}g C=${l.carbs}g F=${l.fat}g H2O=${l.water}L Q="${l.meal_quality}"`
-        // Include food breakdown when available — enables per-food coaching
         return l.food_items ? `${base}\n  Foods: ${l.food_items}` : base
       }).join('\n')}`
     : 'RECENT HISTORY: No logs yet.'
   return `You are Dr. Sarah Mitchell, PhD Sports Nutrition. Direct, data-driven, expert.
 
 ${buildSettingsBlock(settings)}
-
+${buildDirectivesBlock(directives)}
 ${history}
 
 - Reference athlete targets directly when asked
-- When food_items data is present: identify high/low protein sources, flag processed foods, suggest specific food swaps to hit targets better
+- When food_items data is present: identify high/low protein sources, flag processed foods, suggest specific food swaps
 - Flag: protein <1.6g/kg, calories >500 below target 2+ days, weight plateau >${settings?.weight_plateau_days || 10} days
 - Log responses: 3-4 sentences max. Chat: as long as needed.`
 }
 
-function getRecoverySystemPrompt(settings: any, recentLogs: any[]): string {
+function getRecoverySystemPrompt(settings: any, recentLogs: any[], directives: any[] = []): string {
   const history = recentLogs.length > 0
-    ? `RECENT RECOVERY (${recentLogs.length} days):\n${recentLogs.map((l, i) => `Day -${recentLogs.length - i}: HRV=${l.hrv}ms RHR=${l.rhr}bpm Sleep=${l.sleep_hours}hr(q:${l.sleep_quality}/10) Rec=${l.whoop_recovery}% Strain=${l.whoop_strain} Soreness=${l.soreness}/10`).join('\n')}`
+    ? `RECENT RECOVERY (${recentLogs.length} days):\n${recentLogs.map((l, i) =>
+        `Day -${recentLogs.length - i}: HRV=${l.hrv}ms RHR=${l.rhr}bpm Sleep=${l.sleep_hours}hr(q:${l.sleep_quality}/10) Rec=${l.whoop_recovery}% Strain=${l.whoop_strain} Soreness=${l.soreness}/10`
+      ).join('\n')}`
     : 'RECENT HISTORY: No logs yet.'
   return `You are Dr. James Hartley, PhD Exercise Physiology, HRV specialist. Direct, data-driven, expert.
 
 ${buildSettingsBlock(settings)}
-
+${buildDirectivesBlock(directives)}
 ${history}
 
 CONTEXT: Trains 3-4x/week + BJJ 1x/week. Week 1 of 6-week squat reintroduction block.
@@ -61,7 +70,7 @@ CONTEXT: Trains 3-4x/week + BJJ 1x/week. Week 1 of 6-week squat reintroduction b
 - Log responses: 3-4 sentences max. Chat: as long as needed.`
 }
 
-function getStrengthSystemPrompt(settings: any, recentSessions: any[], sessionSets?: Record<string, any[]>): string {
+function getStrengthSystemPrompt(settings: any, recentSessions: any[], directives: any[] = [], sessionSets?: Record<string, any[]>): string {
   const history = recentSessions.length > 0 ? (() => {
     const lines = recentSessions.map((s, i) => {
       const sets = sessionSets?.[s.id] || []
@@ -79,7 +88,7 @@ function getStrengthSystemPrompt(settings: any, recentSessions: any[], sessionSe
   return `You are Dr. Marcus Reid, PhD Exercise Science, CSCS. Direct, data-driven, expert programmer.
 
 ${buildSettingsBlock(settings)}
-
+${buildDirectivesBlock(directives)}
 ${history}
 
 WEEK 1 PROGRAM: Day1-Lower: Squat 4x5@RPE6(~80-90kg), RDL 3x8, LegPress 3x10, LegCurl 3x10, DeadBug 3x10/side | Day2-Upper: Bench 5x3@RPE7-8(~90-92kg), IncDB 3x8, Row 4x6, FacePull 3x15, Tricep 3x12 | Day3-Lower: RDL 4x6@RPE6-7, GobletSq 3x8@RPE5, Lunges 3x8/leg, LegCurl 3x10 | Day4-Optional: Bench 4x5@RPE6-7, OHP 3x8, LatPull 3x10, Curl 3x12
@@ -111,23 +120,36 @@ Latest strength coach: ${lastSession?.coach_output || 'none'}
 - Flag: poor recovery + high volume + low calories, RPE drift + HRV decline, weight plateau`
 }
 
+// Fetch active directives for a given coach from the DB
+export async function getActiveDirectives(coach: 'nutrition' | 'recovery' | 'strength'): Promise<any[]> {
+  const { data } = await supabase
+    .from('coach_directives')
+    .select('*')
+    .eq('target_coach', coach)
+    .eq('active', true)
+    .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
+    .order('priority', { ascending: false }) // high first
+  return data || []
+}
+
 export async function runCoachChat(
   coach: Coach,
   messages: { role: 'user' | 'assistant'; content: string }[],
   settings: any,
   recentLogs: any[],
   recentSessions: any[],
-  extra?: { sessionSets?: Record<string, any[]> }
+  extra?: { sessionSets?: Record<string, any[]>; directives?: any[] }
 ): Promise<string> {
   const isSingleLogMessage = messages.length === 1
   const maxTokens = isSingleLogMessage ? 500 : 1024
+  const directives = extra?.directives || []
 
   let systemPrompt = ''
   switch (coach) {
-    case 'nutrition': systemPrompt = getNutritionSystemPrompt(settings, recentLogs); break
-    case 'recovery': systemPrompt = getRecoverySystemPrompt(settings, recentLogs); break
-    case 'strength': systemPrompt = getStrengthSystemPrompt(settings, recentSessions, extra?.sessionSets); break
-    case 'central': systemPrompt = getCentralSystemPrompt(settings, recentLogs, recentSessions); break
+    case 'nutrition': systemPrompt = getNutritionSystemPrompt(settings, recentLogs, directives); break
+    case 'recovery':  systemPrompt = getRecoverySystemPrompt(settings, recentLogs, directives); break
+    case 'strength':  systemPrompt = getStrengthSystemPrompt(settings, recentSessions, directives, extra?.sessionSets); break
+    case 'central':   systemPrompt = getCentralSystemPrompt(settings, recentLogs, recentSessions); break
   }
 
   const response = await client.messages.create({
