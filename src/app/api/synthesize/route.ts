@@ -124,7 +124,10 @@ export async function POST(req: NextRequest) {
       squatProgression: (() => {
         const pts: {date: string, weight: number}[] = []
         sessions.forEach(s => {
-          const sets = (sessionSets[s.id] || []).filter((st: any) => st.exercise_name?.toLowerCase().includes('squat') && st.weight)
+            const n = (st.exercise_name || '').toLowerCase()
+            const isBackSquat = (n.includes('back squat') || n.includes('low bar') || n.includes('high bar') || (n.includes('barbell') && n.includes('squat'))) && !n.includes('goblet') && !n.includes('split') && !n.includes('bulgarian') && !n.includes('front')
+            return isBackSquat && st.weight
+          })
           if (sets.length) pts.push({ date: s.date, weight: Math.max(...sets.map((st: any) => st.weight)) })
         })
         return pts.slice(-5)
@@ -196,8 +199,8 @@ AGGREGATED METRICS (computed from full history):
 - Consecutive days HRV below minimum: ${agg.lowHrvStreak}
 - High strain days (last 7d): ${agg.highStrainDays}
 - Strength sessions this block: ${agg.sessionsThisBlock} | Avg RPE (last 4 sessions): ${agg.avgRpe7}
-- Bench progression (top set weight): ${agg.benchProgression.map(p => `${p.date.slice(5)}: ${p.weight}kg`).join(' → ') || 'no data'}
-- Squat progression: ${agg.squatProgression.map(p => `${p.date.slice(5)}: ${p.weight}kg`).join(' → ') || 'no data'}
+- Bench progression (barbell flat bench only): ${agg.benchProgression.map(p => `${p.date.slice(5)}: ${p.weight}kg`).join(' → ') || 'no data'}
+- Squat progression (barbell back squat only — goblet/split/front squat NOT included): ${agg.squatProgression.map(p => `${p.date.slice(5)}: ${p.weight}kg`).join(' → ') || 'no data'}
 
 LAST 7 DAYS (day-by-day detail):
 ${detailBlock || 'No data'}
@@ -211,6 +214,8 @@ ${coachThread || 'No recent specialist outputs'}
 ${synthThread}
 
 ${directivesCtx}
+
+IMPORTANT: When analysing strength progressions, only compare like-for-like exercises. Goblet squats, Bulgarian split squats, and leg press are accessory movements — never compare their loads to barbell back squat. Similarly, incline press loads are not comparable to flat bench press.
 
 Your job: spot what the specialist coaches miss. They see individual days. You see the full arc.
 Look for: multi-week trends, domain interactions (e.g. HRV falling while calories drop), goal trajectory (is the athlete on track?), patterns the athlete wouldn't notice themselves (e.g. consistent Sunday under-eating, or HRV always low after high-strain training days).
