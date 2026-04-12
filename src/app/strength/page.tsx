@@ -351,7 +351,7 @@ export default function StrengthPage() {
                           <div className="w-5 h-5 rounded-full border border-white/20 flex-shrink-0" />
                         )}
                         <div className="min-w-0">
-                          <div className={`text-sm font-medium ${done ? 'text-white' : 'text-white/60'}`}>{session.name}</div>
+                          <div className={`text-sm font-semibold ${done ? 'text-white' : 'text-white/80'}`}>{session.name}</div>
                           {done && (
                             <div className="flex items-center gap-2 mt-0.5">
                               <span className="text-[10px] text-white/30">{format(parseISO(done.date), 'd MMM')}</span>
@@ -372,38 +372,38 @@ export default function StrengthPage() {
 
                     {/* Column headers */}
                     <div className="flex gap-4 px-4 pt-2.5 pb-1">
-                      <div className="w-44 flex-shrink-0 text-[9px] text-white/25 uppercase tracking-wider">Exercise</div>
-                      <div className="flex-1 text-[9px] text-white/25 uppercase tracking-wider">Prescribed</div>
-                      {done && <div className="w-48 flex-shrink-0 text-[9px] text-etg-blue/40 uppercase tracking-wider">Actual</div>}
+                      <div className="w-44 flex-shrink-0 text-[9px] text-white/45 uppercase tracking-wider font-semibold">Exercise</div>
+                      <div className="flex-1 text-[9px] text-white/45 uppercase tracking-wider font-semibold">Prescribed</div>
+                      {done && <div className="w-48 flex-shrink-0 text-[9px] text-etg-blue/70 uppercase tracking-wider font-semibold">Actual</div>}
                     </div>
 
                     {/* Exercise rows */}
-                    <div className="divide-y divide-white/5 pb-1">
+                    <div className="divide-y divide-white/8 pb-1">
                       {session.exercises.map((ex, j) => {
                         const exSets = sets.filter((s: any) => s.exercise_name === ex.name)
                         return (
                           <div key={j} className="flex items-start gap-4 px-4 py-2">
                             <div className="w-44 flex-shrink-0">
-                              <div className="text-xs font-medium text-white/75">{ex.name}</div>
-                              {ex.technique_notes && <div className="text-[10px] text-white/25 mt-0.5 leading-relaxed">{ex.technique_notes}</div>}
+                              <div className="text-sm font-semibold text-white">{ex.name}</div>
+                              {ex.technique_notes && <div className="text-[10px] text-white/40 mt-0.5 truncate" title={ex.technique_notes}>{ex.technique_notes}</div>}
                             </div>
                             <div className="flex-1 flex items-center gap-1.5 pt-0.5 flex-wrap">
-                              <span className="text-xs font-medium text-white/55">{ex.sets}×{ex.reps}</span>
-                              <span className="text-[10px] text-white/30">@RPE {ex.rpe}</span>
-                              {ex.load_notes && <span className="text-[10px] text-white/20">· {ex.load_notes}</span>}
+                              <span className="text-sm font-bold text-white/80">{ex.sets}×{ex.reps}</span>
+                              <span className="text-xs text-etg-blue/70 font-medium">@RPE {ex.rpe}</span>
+                              {ex.load_notes && <span className="text-[10px] text-white/40">· {ex.load_notes}</span>}
                             </div>
                             {done && (
                               <div className="w-48 flex-shrink-0 pt-0.5">
                                 {exSets.length > 0 ? (
                                   <div className="flex flex-wrap gap-1">
                                     {exSets.map((s: any, k: number) => (
-                                      <span key={k} className="text-[10px] bg-etg-blue/10 text-etg-blue/80 border border-etg-blue/15 px-1.5 py-0.5 rounded">
+                                      <span key={k} className="text-[10px] bg-etg-blue/15 text-etg-blue border border-etg-blue/30 px-1.5 py-0.5 rounded font-medium">
                                         {s.weight ? `${s.weight}kg` : '—'}×{s.reps || '—'}{s.rpe ? ` @${s.rpe}` : ''}
                                       </span>
                                     ))}
                                   </div>
                                 ) : (
-                                  <span className="text-[10px] text-white/15 italic">—</span>
+                                  <span className="text-[10px] text-white/30">—</span>
                                 )}
                               </div>
                             )}
@@ -415,8 +415,8 @@ export default function StrengthPage() {
                     {/* Session notes footer */}
                     {done?.session_notes && (
                       <div className="px-4 py-2.5 border-t border-white/5 bg-black/15">
-                        <span className="text-[10px] text-white/30 font-medium">Notes · </span>
-                        <span className="text-[10px] text-white/25">{done.session_notes}</span>
+                        <span className="text-[10px] text-white/50 font-semibold">Notes · </span>
+                        <span className="text-[10px] text-white/40">{done.session_notes}</span>
                       </div>
                     )}
                   </div>
