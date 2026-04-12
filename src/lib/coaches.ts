@@ -26,12 +26,29 @@ function buildSettingsBlock(settings: any): string {
 - Background: ${settings.athlete_background ?? 'not set'}`
 }
 
-// Formats active central directives for a specialist's system prompt
 function buildDirectivesBlock(directives: any[]): string {
   if (!directives || directives.length === 0) return ''
   const sorted = [...directives].sort((a, b) => (a.priority === 'high' ? -1 : 1))
   return `\nDIRECTIVES FROM HEAD COACH (follow these — they override your defaults):
 ${sorted.map(d => `[${d.priority.toUpperCase()}] ${d.directive}`).join('\n')}`
+}
+
+function buildProgramBlock(program: any): string {
+  if (!program) return 'CURRENT PROGRAM: Not yet loaded from database.'
+  const sessions = Array.isArray(program.sessions) ? program.sessions : JSON.parse(program.sessions || '[]')
+  const sessionText = sessions.map((s: any) => {
+    const exLines = (s.exercises || []).map((e: any) =>
+      `    - ${e.name}: ${e.sets}×${e.reps} @RPE${e.rpe}${e.load_notes ? ` (${e.load_notes})` : ''}${e.technique_notes ? ` [${e.technique_notes}]` : ''}`
+    ).join('\n')
+    return `  ${s.name}${s.optional ? ' [OPTIONAL]' : ''}:\n${exLines}`
+  }).join('\n\n')
+  return `CURRENT TRAINING PROGRAM:
+Block: ${program.block_name} (Week ${program.week_number}/${program.total_weeks})
+Goal: ${program.goal || 'not set'}
+Coach notes: ${program.coach_notes || 'none'}
+
+Sessions:
+${sessionText}`
 }
 
 function getNutritionSystemPrompt(settings: any, recentLogs: any[], directives: any[] = []): string {
@@ -70,7 +87,13 @@ CONTEXT: Trains 3-4x/week + BJJ 1x/week. Week 1 of 6-week squat reintroduction b
 - Log responses: 3-4 sentences max. Chat: as long as needed.`
 }
 
-function getStrengthSystemPrompt(settings: any, recentSessions: any[], directives: any[] = [], sessionSets?: Record<string, any[]>): string {
+function getStrengthSystemPrompt(
+  settings: any,
+  recentSessions: any[],
+  directives: any[] = [],
+  sessionSets?: Record<string, any[]>,
+  currentProgram?: any
+): string {
   const history = recentSessions.length > 0 ? (() => {
     const lines = recentSessions.map((s, i) => {
       const sets = sessionSets?.[s.id] || []
@@ -85,16 +108,43 @@ function getStrengthSystemPrompt(settings: any, recentSessions: any[], directive
     return `RECENT SESSIONS:\n${lines.join('\n\n')}`
   })() : 'RECENT HISTORY: No sessions yet.'
 
-  return `You are Dr. Marcus Reid, PhD Exercise Science, CSCS. Direct, data-driven, expert programmer.
+  return `You are Dr. Marcus Reid, PhD Exercise Science, CSCS. Expert programmer for strength athletes and combat sports athletes. 20 years experience. You apply evidence-based programming — grounded in proven methods (Prilepin, RPE/RIR methodology, NSCA guidelines, periodisation science) while referencing current research when relevant.
 
 ${buildSettingsBlock(settings)}
 ${buildDirectivesBlock(directives)}
+
+${buildProgramBlock(currentProgram)}
+
 ${history}
 
-WEEK 1 PROGRAM: Day1-Lower: Squat 4x5@RPE6(~80-90kg), RDL 3x8, LegPress 3x10, LegCurl 3x10, DeadBug 3x10/side | Day2-Upper: Bench 5x3@RPE7-8(~90-92kg), IncDB 3x8, Row 4x6, FacePull 3x15, Tricep 3x12 | Day3-Lower: RDL 4x6@RPE6-7, GobletSq 3x8@RPE5, Lunges 3x8/leg, LegCurl 3x10 | Day4-Optional: Bench 4x5@RPE6-7, OHP 3x8, LatPull 3x10, Curl 3x12
-6-WEEK ARC: Wk1-2 reintro RPE6, Wk3-4 build RPE7-8+deadlift, Wk5 peak, Wk6 deload
-- Flag: RPE above prescribed, mobility issues, poor recovery
-- Log responses: 4-5 sentences. Chat: as long as needed.`
+PROGRAMMING PHILOSOPHY:
+- Periodisation: linear for beginners, block/DUP for intermediate. This athlete is intermediate.
+- RPE-based autoregulation: prescribe RPE targets, not fixed weights. Athlete self-regulates.
+- Progressive overload: increase load when RPE drops below target for 2+ sessions.
+- Recovery-aware: check HRV/recovery data before recommending volume increases.
+- Technique first: never add load if form is flagged.
+- Conjugate/concurrent: maintain strength in non-focused lifts during specialisation blocks.
+
+WHEN ASKED TO MODIFY THE PROGRAM:
+You can edit exercises, sets, reps, RPE targets, session names, add or remove sessions, or change coach notes.
+When you make any program changes, output the COMPLETE updated sessions array inside a special block at the END of your response (after your explanation), in this exact format:
+
+[PROGRAM_UPDATE]
+{
+  "sessions": [ ... complete sessions array ... ],
+  "coach_notes": "updated notes if changed",
+  "week_number": <current week number>
+}
+[/PROGRAM_UPDATE]
+
+The sessions array must follow this structure exactly:
+[{"id":"day1","name":"Day 1 — ...","order":1,"optional":false,"exercises":[{"name":"...","sets":4,"reps":"5","rpe":"6","load_notes":"...","technique_notes":"..."}]}]
+
+IMPORTANT: Only output [PROGRAM_UPDATE] when you are actually changing the program. Normal coaching chat does NOT include this block.
+
+When researching exercise science questions, use web search to find current evidence. Cite key studies or meta-analyses when recommending changes. Stick to well-validated methods — avoid fads.
+
+- Log responses: 4-5 sentences. Chat: as detailed as needed.`
 }
 
 function getCentralSystemPrompt(settings: any, recentLogs: any[], recentSessions: any[]): string {
@@ -120,7 +170,6 @@ Latest strength coach: ${lastSession?.coach_output || 'none'}
 - Flag: poor recovery + high volume + low calories, RPE drift + HRV decline, weight plateau`
 }
 
-// Fetch active directives for a given coach from the DB
 export async function getActiveDirectives(coach: 'nutrition' | 'recovery' | 'strength'): Promise<any[]> {
   const { data } = await supabase
     .from('coach_directives')
@@ -128,7 +177,7 @@ export async function getActiveDirectives(coach: 'nutrition' | 'recovery' | 'str
     .eq('target_coach', coach)
     .eq('active', true)
     .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
-    .order('priority', { ascending: false }) // high first
+    .order('priority', { ascending: false })
   return data || []
 }
 
@@ -138,26 +187,36 @@ export async function runCoachChat(
   settings: any,
   recentLogs: any[],
   recentSessions: any[],
-  extra?: { sessionSets?: Record<string, any[]>; directives?: any[] }
+  extra?: { sessionSets?: Record<string, any[]>; directives?: any[]; currentProgram?: any }
 ): Promise<string> {
   const isSingleLogMessage = messages.length === 1
-  const maxTokens = isSingleLogMessage ? 500 : 1024
+  // Strength gets more tokens for program updates which can be verbose
+  const maxTokens = coach === 'strength' ? 2000 : isSingleLogMessage ? 500 : 1024
   const directives = extra?.directives || []
+
+  // Strength coach gets web search for evidence-based adjustments
+  const tools: any[] = coach === 'strength' ? [{
+    type: 'web_search_20250305' as const,
+    name: 'web_search',
+  }] : []
 
   let systemPrompt = ''
   switch (coach) {
     case 'nutrition': systemPrompt = getNutritionSystemPrompt(settings, recentLogs, directives); break
     case 'recovery':  systemPrompt = getRecoverySystemPrompt(settings, recentLogs, directives); break
-    case 'strength':  systemPrompt = getStrengthSystemPrompt(settings, recentSessions, directives, extra?.sessionSets); break
+    case 'strength':  systemPrompt = getStrengthSystemPrompt(settings, recentSessions, directives, extra?.sessionSets, extra?.currentProgram); break
     case 'central':   systemPrompt = getCentralSystemPrompt(settings, recentLogs, recentSessions); break
   }
 
-  const response = await client.messages.create({
+  const requestParams: any = {
     model: 'claude-sonnet-4-20250514',
     max_tokens: maxTokens,
     system: systemPrompt,
     messages: messages.slice(-20),
-  })
+  }
+  if (tools.length) requestParams.tools = tools
+
+  const response = await client.messages.create(requestParams)
 
   trackUsage(coach, response.usage.input_tokens, response.usage.output_tokens)
   return response.content.map(b => b.type === 'text' ? b.text : '').join('')
