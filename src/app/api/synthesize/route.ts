@@ -7,13 +7,13 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 // ─── Server-side aggregation helpers ─────────────────────────────────────────
 // These run in JS before the AI call — cheap, no tokens wasted on raw rows
 
-function avg(arr: number[]): number | null {
+function avg(arr: (number | null)[]): number | null {
   const v = arr.filter(x => x != null && !isNaN(x))
   return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null
 }
 
-function trend(arr: number[]): 'rising' | 'falling' | 'stable' | 'insufficient' {
-  const v = arr.filter(x => x != null && !isNaN(x))
+function trend(arr: (number | null | undefined)[]): 'rising' | 'falling' | 'stable' | 'insufficient' {
+  const v = arr.filter((x): x is number => x != null && !isNaN(x as number))
   if (v.length < 3) return 'insufficient'
   // Simple linear regression slope
   const n = v.length
@@ -28,7 +28,7 @@ function trend(arr: number[]): 'rising' | 'falling' | 'stable' | 'insufficient' 
   return 'stable'
 }
 
-function streak(arr: (number | null)[], threshold: number, direction: 'above' | 'below'): number {
+function streak(arr: (number | null | undefined)[], threshold: number, direction: 'above' | 'below'): number {
   let count = 0
   for (let i = arr.length - 1; i >= 0; i--) {
     if (arr[i] == null) break
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
       avgProtein14: avg(last14.map(l => l.protein)),
       avgCals7:     avg(last7.map(l => l.calories)),
       avgCals14:    avg(last14.map(l => l.calories)),
-      avgWater7:    avg(last7.map(l => l.water ? Math.round(l.water * 10) / 10 : null)),
+      avgWater7:    avg(last7.map(l => l.water != null ? Math.round(l.water * 10) / 10 : null)),
       daysUnderProtein: last14.filter(l => l.protein && settings?.daily_protein && l.protein < settings.daily_protein * 0.9).length,
       daysUnderCalories: last14.filter(l => l.calories && settings?.daily_calories && l.calories < settings.daily_calories - 300).length,
 
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
       avgHrv30:       avg(last30.map(l => l.hrv)),
       hrvTrend7:      trend(last7.map(l => l.hrv)),
       hrvTrend14:     trend(last14.map(l => l.hrv)),
-      avgSleep7:      avg(last7.map(l => l.sleep_hours ? Math.round(l.sleep_hours * 10) : null)),
+      avgSleep7:      avg(last7.map(l => l.sleep_hours != null ? Math.round(l.sleep_hours * 10) : null)),
       avgRecovery7:   avg(last7.map(l => l.whoop_recovery)),
       avgStrain7:     avg(last7.map(l => l.whoop_strain)),
       lowHrvStreak:   streak(last14.map(l => l.hrv), settings?.hrv_minimum || 65, 'below'),
