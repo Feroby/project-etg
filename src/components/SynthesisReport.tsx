@@ -107,7 +107,7 @@ export default function SynthesisReport({ report, generatedAt }: { report: Repor
                 {s.label}
               </div>
               <p className="text-sm text-white/70 leading-relaxed mb-3">{d.summary}</p>
-              {d.key_wins?.length > 0 && (
+              {(d.key_wins?.length ?? 0) > 0 && (
                 <div className="space-y-1.5 mb-2">
                   {d.key_wins.map((w, i) => (
                     <div key={i} className="flex items-start gap-1.5 text-xs text-etg-green/90">
@@ -116,7 +116,7 @@ export default function SynthesisReport({ report, generatedAt }: { report: Repor
                   ))}
                 </div>
               )}
-              {d.flags?.length > 0 && (
+              {(d.flags?.length ?? 0) > 0 && (
                 <div className="space-y-1.5">
                   {d.flags.map((f, i) => (
                     <div key={i} className="flex items-start gap-1.5 text-xs text-etg-amber/90">
@@ -131,7 +131,7 @@ export default function SynthesisReport({ report, generatedAt }: { report: Repor
       </div>
 
       {/* Cross-domain insights */}
-      {report.cross_domain_insights?.length > 0 && (
+      {(report.cross_domain_insights?.length ?? 0) > 0 && (
         <div className="bg-[#111] border border-white/10 rounded-xl p-4">
           <div className="text-xs font-bold text-white/50 uppercase tracking-widest mb-3">Cross-domain insights</div>
           <div className="space-y-3">
@@ -148,7 +148,7 @@ export default function SynthesisReport({ report, generatedAt }: { report: Repor
       )}
 
       {/* Blind spots — NEW section */}
-      {report.blind_spots?.length > 0 && (
+      {(report.blind_spots?.length ?? 0) > 0 && (
         <div className="bg-etg-purple/8 border border-etg-purple/20 rounded-xl p-4">
           <div className="text-xs font-bold text-etg-purple/70 uppercase tracking-widest mb-3">Blind spots</div>
           <div className="space-y-2.5">
@@ -163,7 +163,7 @@ export default function SynthesisReport({ report, generatedAt }: { report: Repor
       )}
 
       {/* Directives */}
-      {report.directives?.length > 0 && (
+      {(report.directives?.length ?? 0) > 0 && (
         <div className="bg-[#111] border border-white/10 rounded-xl p-4">
           <div className="text-xs font-bold text-white/50 uppercase tracking-widest mb-3">Directives</div>
           <div className="space-y-3">
