@@ -178,8 +178,11 @@ export async function POST(req: NextRequest) {
       ? `Goal: ${settings.goal_weight}kg (from ${settings.current_weight}kg) by ${settings.target_date} | Cals: ${settings.daily_calories}kcal | P: ${settings.daily_protein}g | HRV baseline: ${settings.hrv_baseline}ms (min: ${settings.hrv_minimum}ms) | Sleep: ${settings.sleep_target}hr | Block goal: ${settings.training_goal}`
       : 'Settings not configured.'
 
+    const today = new Date().toISOString().slice(0, 10)
+
     const prompt = `You are the Head Performance Coach for a 1.86m ~95kg male athlete targeting muscle gain. You have access to their full history.
 
+TODAY'S DATE: ${today}
 GOALS & SETTINGS: ${settingsBlock}
 TRAINING PROGRAM: ${programCtx}
 
