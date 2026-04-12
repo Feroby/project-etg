@@ -1,20 +1,8 @@
 'use client'
 import clsx from 'clsx'
 
-// ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
-// All opacity values chosen to meet WCAG AA (4.5:1) on #0a0a0a / #111 backgrounds
-// text-white/90  ≈ 18:1  — headings, primary values
-// text-white/70  ≈ 12:1  — body copy, coach responses
-// text-white/55  ≈  9:1  — secondary labels, captions
-// text-white/40  ≈  6:1  — tertiary / minimum for non-decorative text
-// text-white/25          — decorative only (dividers, placeholders)
-//
-// Minimum font size: 12px (text-xs). Use text-sm (14px) for body copy.
-// ──────────────────────────────────────────────────────────────────────────────
-
 export type AccentColor = 'green' | 'blue' | 'amber' | 'purple'
 
-// Shared accent colour maps — single source of truth used by all components
 export const ACCENT_BORDER: Record<AccentColor, string> = {
   green:  'border-etg-green/40',
   blue:   'border-etg-blue/40',
@@ -40,15 +28,12 @@ export const ACCENT_BG_AVATAR: Record<AccentColor, string> = {
   purple: 'bg-etg-purple text-white',
 }
 
-// Shared field class — dark solid bg so native dropdowns aren't white
 export const FIELD_CLS = [
   'bg-[#1a1a1a] border border-white/20 rounded-lg px-3 py-2',
   'text-sm text-white placeholder-white/30',
   'focus:outline-none focus:border-white/50',
   'w-full transition-colors',
 ].join(' ')
-
-// ─── LAYOUT ───────────────────────────────────────────────────────────────────
 
 export function Card({ children, className, accent }: {
   children: React.ReactNode; className?: string; accent?: AccentColor
@@ -71,8 +56,6 @@ export function PageShell({ children }: { children: React.ReactNode }) {
     </div>
   )
 }
-
-// ─── DATA DISPLAY ─────────────────────────────────────────────────────────────
 
 export function MetricCard({ label, value, unit }: {
   label: string; value: string | number; unit?: string
@@ -102,7 +85,6 @@ export function Badge({ children, color }: { children: React.ReactNode; color: A
   )
 }
 
-// Small avatar circle used in coach headers and chat bubbles
 export function CoachAvatar({ coach, size = 'md' }: {
   coach: 'N' | 'R' | 'S' | 'C'; size?: 'sm' | 'md'
 }) {
@@ -118,8 +100,6 @@ export function CoachAvatar({ coach, size = 'md' }: {
   )
 }
 
-// ─── NAVIGATION ───────────────────────────────────────────────────────────────
-
 export function Tabs({ tabs, active, onChange }: {
   tabs: { id: string; label: string }[]; active: string; onChange: (id: string) => void
 }) {
@@ -128,6 +108,7 @@ export function Tabs({ tabs, active, onChange }: {
       {tabs.map(t => (
         <button
           key={t.id}
+          type="button"
           role="tab"
           aria-selected={active === t.id}
           onClick={() => onChange(t.id)}
@@ -144,8 +125,6 @@ export function Tabs({ tabs, active, onChange }: {
     </div>
   )
 }
-
-// ─── FORM CONTROLS ────────────────────────────────────────────────────────────
 
 export function Input({ label, id, type = 'text', placeholder, step, min, max, className }: {
   label: string; id: string; type?: string; placeholder?: string
@@ -187,9 +166,9 @@ export function Textarea({ label, id, placeholder, rows = 3, className }: {
   )
 }
 
-// ─── ACTIONS ──────────────────────────────────────────────────────────────────
-
-export function Button({ children, onClick, disabled, variant = 'primary', color = 'green', className, type = 'button' }: {
+// Default type="submit" so Button works inside forms without needing an explicit prop.
+// Use type="button" explicitly for standalone action buttons (outside forms).
+export function Button({ children, onClick, disabled, variant = 'primary', color = 'green', className, type = 'submit' }: {
   children: React.ReactNode; onClick?: () => void; disabled?: boolean
   variant?: 'primary' | 'ghost'; color?: AccentColor; className?: string; type?: 'button' | 'submit'
 }) {
@@ -220,8 +199,6 @@ export function Button({ children, onClick, disabled, variant = 'primary', color
   )
 }
 
-// ─── FEEDBACK ─────────────────────────────────────────────────────────────────
-
 export function Spinner({ size = 'sm' }: { size?: 'sm' | 'md' }) {
   return (
     <div className={clsx(
@@ -249,8 +226,6 @@ export function FlagBanner({ flags }: { flags: string[] }) {
     </div>
   )
 }
-
-// ─── CHAT ─────────────────────────────────────────────────────────────────────
 
 function renderMarkdown(text: string): string {
   return text
