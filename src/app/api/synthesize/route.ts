@@ -8,7 +8,7 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 // These run in JS before the AI call — cheap, no tokens wasted on raw rows
 
 function avg(arr: (number | null)[]): number | null {
-  const v = arr.filter(x => x != null && !isNaN(x))
+  const v = arr.filter((x): x is number => x != null && !isNaN(x as number))
   return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null
 }
 
