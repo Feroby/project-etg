@@ -26,7 +26,6 @@ export default function CentralPage() {
   const [report, setReport] = useState<any>(null)
   const [reportMeta, setReportMeta] = useState<string | null>(null)
   const [synthError, setSynthError] = useState<string | null>(null)
-  const [dayRange, setDayRange] = useState(3)
 
   const [addingDirective, setAddingDirective] = useState(false)
   const [newDirectiveTarget, setNewDirectiveTarget] = useState<'nutrition' | 'recovery' | 'strength'>('nutrition')
@@ -56,10 +55,15 @@ export default function CentralPage() {
   async function handleSynthesize() {
     setSynthesising(true); setSynthError(null); setReport(null)
     try {
-      const res = await fetch('/api/synthesize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: dayRange }) })
+      const res = await fetch('/api/synthesize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
-      setReport(data.report); setReportMeta(data.generatedAt)
+      setReport(data.report)
+      setReportMeta(data.generatedAt)
       if (data.directives) setDirectives(data.directives)
     } catch (err: any) {
       setSynthError(err.message || 'Synthesis failed')
@@ -94,63 +98,61 @@ export default function CentralPage() {
 
   if (loading) return (
     <div className="flex h-screen bg-[#0a0a0a]"><Sidebar />
-      <main className="ml-52 flex-1 flex items-center justify-center"><div className="text-white/30 text-sm">Loading...</div></main>
+      <main className="ml-52 flex-1 flex items-center justify-center"><div className="text-white/45 text-sm">Loading...</div></main>
     </div>
   )
 
   return (
     <div className="flex h-screen bg-[#0a0a0a] overflow-hidden">
       <Sidebar />
-      {/* Flex column so chat tab can fill full remaining height */}
       <main className={`ml-52 flex-1 flex flex-col min-h-0 ${isChat ? 'overflow-hidden' : 'overflow-y-auto'}`}>
 
-        {/* Header — always visible, metrics hidden in chat to save space */}
         <div className="flex-shrink-0 px-6 pt-5">
           <div className={isChat ? '' : 'max-w-5xl mx-auto'}>
             <div className="flex items-center gap-3 mb-4">
               <div className="w-8 h-8 rounded-full bg-etg-purple flex items-center justify-center text-sm font-bold text-white">C</div>
               <div>
                 <h1 className="text-lg font-semibold text-white">Central Coach</h1>
-                <p className="text-xs text-white/40">Head performance coach · Cross-domain synthesis · Goal arbiter</p>
+                <p className="text-xs text-white/45">Head performance coach · Long-term pattern analysis · Goal arbiter</p>
               </div>
               {unresolvedFlags.length > 0 && <Badge color="purple">{unresolvedFlags.length} active flags</Badge>}
               {activeDirectives.length > 0 && (
-                <span className="text-[10px] bg-etg-purple/20 text-etg-purple px-2 py-0.5 rounded-full font-medium">
+                <span className="text-xs bg-etg-purple/20 text-etg-purple px-2.5 py-0.5 rounded-full font-semibold">
                   {activeDirectives.length} directive{activeDirectives.length > 1 ? 's' : ''} active
                 </span>
               )}
             </div>
             {!isChat && (
               <div className="grid grid-cols-4 gap-3 mb-5">
-                <MetricCard label="Nutrition logs" value={logs.filter(l => l.calories).length} />
-                <MetricCard label="Recovery logs" value={logs.filter(l => l.hrv).length} />
+                <MetricCard label="Nutrition logs"    value={logs.filter(l => l.calories).length} />
+                <MetricCard label="Recovery logs"     value={logs.filter(l => l.hrv).length} />
                 <MetricCard label="Strength sessions" value={sessions.length} />
                 <MetricCard label="Active directives" value={activeDirectives.length} />
               </div>
             )}
             <Tabs
               tabs={[
-                { id: 'synthesis', label: 'Synthesis' },
+                { id: 'synthesis',  label: 'Synthesis' },
                 { id: 'directives', label: `Directives${activeDirectives.length ? ` (${activeDirectives.length})` : ''}` },
-                { id: 'chat', label: 'Chat' },
-                { id: 'flags', label: 'Flags' },
-                { id: 'history', label: 'History' },
+                { id: 'chat',       label: 'Chat' },
+                { id: 'flags',      label: 'Flags' },
+                { id: 'history',    label: 'History' },
               ]}
               active={tab} onChange={setTab}
             />
           </div>
         </div>
 
-        {/* Chat tab: fills ALL remaining height, full width */}
+        {/* CHAT — fullscreen */}
         {isChat && (
           <div className="flex-1 min-h-0 px-6 pb-6 flex flex-col">
             <div className="flex-1 min-h-0 bg-[#111] border border-etg-purple/40 rounded-xl overflow-hidden flex flex-col">
-              <div className="flex-shrink-0 px-4 py-3 border-b border-white/8 flex items-center gap-2.5">
+              <div className="flex-shrink-0 px-4 py-3 border-b border-white/10 flex items-center gap-2.5">
                 <div className="w-5 h-5 rounded-full bg-etg-purple flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0">C</div>
-                <div className="text-xs text-white/40 flex-1">Ask about patterns, goal progress, cross-domain decisions — or instruct to send specific notes to specialist coaches</div>
+                <div className="text-sm text-white/55 flex-1">Ask about patterns, goal trajectory, cross-domain decisions — the central coach has your full history in context</div>
                 {activeDirectives.length > 0 && (
-                  <span className="text-[10px] bg-etg-purple/15 text-etg-purple/60 px-2 py-0.5 rounded-full flex-shrink-0">
-                    {activeDirectives.length} directive{activeDirectives.length > 1 ? 's' : ''} active
+                  <span className="text-xs bg-etg-purple/15 text-etg-purple/70 px-2 py-0.5 rounded-full flex-shrink-0 font-medium">
+                    {activeDirectives.length} active directive{activeDirectives.length > 1 ? 's' : ''}
                   </span>
                 )}
               </div>
@@ -161,71 +163,68 @@ export default function CentralPage() {
           </div>
         )}
 
-        {/* All other tabs: max-width constrained, scrollable */}
+        {/* ALL OTHER TABS */}
         {!isChat && (
           <div className="flex-1 px-6 pb-6 pt-0">
             <div className="max-w-5xl mx-auto space-y-4">
 
+              {/* SYNTHESIS */}
               {tab === 'synthesis' && (
                 <>
+                  {/* Trigger card */}
                   <div className="bg-gradient-to-r from-etg-purple/15 to-transparent border border-etg-purple/25 rounded-2xl p-5">
-                    <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
-                        <div className="text-sm font-semibold text-white mb-1">Generate performance report</div>
-                        <div className="text-xs text-white/40">Reads all data, produces a cross-domain analysis, and issues fresh standing directives to all three specialist coaches.</div>
-                      </div>
-                      <div className="flex items-center gap-3 flex-shrink-0">
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[10px] text-white/30 uppercase tracking-wider">Days</label>
-                          <div className="flex gap-1">
-                            {[1, 2, 3].map(d => (
-                              <button key={d} onClick={() => setDayRange(d)}
-                                className={`w-8 h-8 rounded-lg text-xs font-medium transition-all ${dayRange === d ? 'bg-etg-purple text-white' : 'bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/70'}`}>
-                                {d}
-                              </button>
-                            ))}
-                          </div>
+                        <div className="text-sm font-semibold text-white mb-1.5">Full performance synthesis</div>
+                        <div className="text-sm text-white/55 leading-relaxed">
+                          Analyses your complete history — weight trajectory, HRV patterns, nutrition consistency over weeks, strength progression — and spots cross-domain patterns individual coaches miss.
+                          Also issues fresh standing directives to all three specialists.
                         </div>
-                        <button onClick={handleSynthesize} disabled={synthesising || !hasData}
-                          className="flex items-center gap-2 bg-etg-purple hover:bg-etg-purple/80 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-5 py-2.5 rounded-xl text-sm transition-all">
-                          {synthesising ? <><Spinner size="sm" /><span>Synthesising...</span></> : <><span className="text-base leading-none">⚡</span><span>Synthesize</span></>}
-                        </button>
                       </div>
+                      <button onClick={handleSynthesize} disabled={synthesising || !hasData}
+                        className="flex items-center gap-2 bg-etg-purple hover:bg-etg-purple/80 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-6 py-3 rounded-xl text-sm transition-all flex-shrink-0">
+                        {synthesising
+                          ? <><Spinner size="sm" /><span>Analysing...</span></>
+                          : <><span className="text-base leading-none">⚡</span><span>Synthesize</span></>}
+                      </button>
                     </div>
                     {synthesising && (
-                      <div className="mt-3 pt-3 border-t border-white/8 text-xs text-white/40 flex items-center gap-2">
-                        <Spinner size="sm" />Reading {dayRange} day{dayRange > 1 ? 's' : ''} of data, generating report, and issuing fresh coach directives...
+                      <div className="mt-3 pt-3 border-t border-white/10 text-sm text-white/45 flex items-center gap-2">
+                        <Spinner size="sm" />
+                        Reading full history, computing trends, generating cross-domain report...
+                      </div>
+                    )}
+                    {!hasData && (
+                      <div className="mt-3 pt-3 border-t border-white/8 text-xs text-white/35">
+                        Log at least one day of nutrition or recovery data to run a synthesis.
                       </div>
                     )}
                   </div>
-                  {synthError && <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-400">{synthError}</div>}
+
+                  {synthError && (
+                    <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-400">{synthError}</div>
+                  )}
+
                   {report && reportMeta && <SynthesisReport report={report} generatedAt={reportMeta} />}
+
                   {!report && !synthesising && !synthError && (
-                    <div className="space-y-3">
-                      {logs.filter(l => l.central_output).slice(-3).reverse().map(l => (
-                        <Card key={l.id} className="border border-etg-purple/15">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="text-[10px] text-etg-purple/60 font-semibold uppercase tracking-wider">Previous synthesis</div>
-                            <div className="text-[10px] text-white/25">{format(parseISO(l.date), 'd MMM yyyy')}</div>
-                          </div>
-                          <p className="text-sm text-white/50 leading-relaxed">{l.central_output}</p>
-                        </Card>
-                      ))}
-                      {logs.filter(l => l.central_output).length === 0 && (
-                        <div className="text-center py-12 text-white/20 text-sm">Hit Synthesize above to generate your first report.</div>
-                      )}
+                    <div className="text-center py-16 text-white/30 text-sm">
+                      <div className="text-4xl mb-4 opacity-30">⚡</div>
+                      Hit Synthesize above — the central coach will analyse your full history, not just the last few days.
                     </div>
                   )}
                 </>
               )}
 
+              {/* DIRECTIVES */}
               {tab === 'directives' && (
                 <>
                   <div className="bg-etg-purple/8 border border-etg-purple/20 rounded-xl p-4">
-                    <div className="text-xs text-white/60 leading-relaxed">
-                      <span className="text-etg-purple font-medium">Standing directives</span> are instructions from the central coach that all three specialists read on every log and chat. Run a Synthesis to auto-generate them, or add manual ones below.
-                    </div>
+                    <p className="text-sm text-white/60 leading-relaxed">
+                      <span className="text-etg-purple font-semibold">Standing directives</span> are instructions the central coach issues to each specialist after a synthesis. They're injected into every log and chat — so Dr. Mitchell, Dr. Hartley and Dr. Reid always have the latest cross-domain context.
+                    </p>
                   </div>
+
                   {(['nutrition', 'recovery', 'strength'] as const).map(coachKey => {
                     const meta = COACH_META[coachKey]
                     const cd = activeDirectives.filter(d => d.target_coach === coachKey)
@@ -233,79 +232,87 @@ export default function CentralPage() {
                     return (
                       <div key={coachKey} className={`border rounded-xl p-4 ${meta.border} ${meta.bg}`}>
                         <div className="flex items-center gap-2 mb-3">
-                          <div className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-                          <span className={`text-xs font-semibold uppercase tracking-wider ${meta.color}`}>{meta.label} coach directives</span>
+                          <div className={`w-2 h-2 rounded-full ${meta.dot}`} />
+                          <span className={`text-xs font-bold uppercase tracking-wider ${meta.color}`}>{meta.label} coach</span>
                         </div>
-                        <div className="space-y-2.5">
+                        <div className="space-y-3">
                           {cd.map(d => (
                             <div key={d.id} className="flex items-start gap-2.5 group">
-                              <div className={`flex-shrink-0 mt-1 w-1.5 h-1.5 rounded-full ${d.priority === 'high' ? 'bg-red-400' : 'bg-etg-amber'}`} />
+                              <div className={`flex-shrink-0 mt-1.5 w-1.5 h-1.5 rounded-full ${d.priority === 'high' ? 'bg-red-400' : 'bg-etg-amber'}`} />
                               <div className="flex-1">
                                 <p className="text-sm text-white/80 leading-relaxed">{d.directive}</p>
-                                <span className="text-[10px] text-white/25">{d.source === 'manual' ? 'Manual' : 'From synthesis'} · {format(new Date(d.created_at), 'd MMM HH:mm')}</span>
+                                <span className="text-xs text-white/35 font-medium">
+                                  {d.source === 'manual' ? 'Manual' : 'From synthesis'} · {format(new Date(d.created_at), 'd MMM HH:mm')}
+                                </span>
                               </div>
-                              <button onClick={() => dismissDirective(d.id)} className="text-white/15 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100 transition-colors px-1">✕</button>
+                              <button onClick={() => dismissDirective(d.id)}
+                                className="text-white/20 hover:text-red-400 text-sm opacity-0 group-hover:opacity-100 transition-colors px-1">✕</button>
                             </div>
                           ))}
                         </div>
                       </div>
                     )
                   })}
+
                   {activeDirectives.length === 0 && !addingDirective && (
-                    <div className="text-center py-8 text-white/25 text-sm">No active directives. Run a Synthesis or add one manually.</div>
+                    <div className="text-center py-10 text-white/30 text-sm">No active directives. Run a synthesis to auto-generate them.</div>
                   )}
+
                   {addingDirective ? (
-                    <div className="bg-[#111] border border-white/10 rounded-xl p-4 space-y-3">
-                      <div className="text-xs font-medium text-white/60 uppercase tracking-wider">New directive</div>
+                    <div className="bg-[#111] border border-white/12 rounded-xl p-4 space-y-3">
+                      <div className="text-xs font-bold text-white/55 uppercase tracking-wider">New directive</div>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="text-[10px] text-white/40 block mb-1">Target coach</label>
+                          <label className="text-xs font-medium text-white/55 block mb-1.5">Target coach</label>
                           <select value={newDirectiveTarget} onChange={e => setNewDirectiveTarget(e.target.value as any)}
-                            className="bg-[#1a1a1a] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none w-full [&>option]:bg-[#1a1a1a] [&>option]:text-white">
+                            className="bg-[#1a1a1a] border border-white/15 rounded-lg px-3 py-2 text-sm text-white focus:outline-none w-full [&>option]:bg-[#1a1a1a] [&>option]:text-white">
                             <option value="nutrition">Nutrition (Dr. Mitchell)</option>
                             <option value="recovery">Recovery (Dr. Hartley)</option>
                             <option value="strength">Strength (Dr. Reid)</option>
                           </select>
                         </div>
                         <div>
-                          <label className="text-[10px] text-white/40 block mb-1">Priority</label>
+                          <label className="text-xs font-medium text-white/55 block mb-1.5">Priority</label>
                           <select value={newDirectivePriority} onChange={e => setNewDirectivePriority(e.target.value as any)}
-                            className="bg-[#1a1a1a] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none w-full [&>option]:bg-[#1a1a1a] [&>option]:text-white">
+                            className="bg-[#1a1a1a] border border-white/15 rounded-lg px-3 py-2 text-sm text-white focus:outline-none w-full [&>option]:bg-[#1a1a1a] [&>option]:text-white">
                             <option value="high">High</option>
                             <option value="medium">Medium</option>
                           </select>
                         </div>
                       </div>
                       <div>
-                        <label className="text-[10px] text-white/40 block mb-1">Directive</label>
+                        <label className="text-xs font-medium text-white/55 block mb-1.5">Directive</label>
                         <textarea value={newDirectiveText} onChange={e => setNewDirectiveText(e.target.value)} rows={3}
-                          placeholder="e.g. Athlete is targeting 95kg. Challenge any week where weight gain is less than 0.3kg..."
-                          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/15 focus:outline-none resize-none" />
+                          placeholder="e.g. Athlete is targeting 95kg. Push back if protein is under 180g. Suggest specific food swaps."
+                          className="w-full bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-sm text-white placeholder-white/25 focus:outline-none resize-none" />
                       </div>
                       <div className="flex gap-2">
-                        <button onClick={() => setAddingDirective(false)} className="px-3 py-1.5 text-xs text-white/40 border border-white/10 rounded-lg hover:bg-white/5">Cancel</button>
+                        <button onClick={() => setAddingDirective(false)}
+                          className="px-3 py-2 text-sm text-white/45 border border-white/12 rounded-lg hover:bg-white/5 font-medium">Cancel</button>
                         <button onClick={saveManualDirective} disabled={savingDirective || !newDirectiveText.trim()}
-                          className="px-3 py-1.5 text-xs bg-etg-purple hover:bg-etg-purple/80 disabled:opacity-40 text-white rounded-lg flex items-center gap-1.5">
+                          className="px-3 py-2 text-sm bg-etg-purple hover:bg-etg-purple/80 disabled:opacity-40 text-white rounded-lg flex items-center gap-1.5 font-semibold">
                           {savingDirective && <Spinner size="sm" />} Save directive
                         </button>
                       </div>
                     </div>
                   ) : (
                     <button onClick={() => setAddingDirective(true)}
-                      className="w-full border border-dashed border-white/10 hover:border-etg-purple/40 hover:bg-etg-purple/5 rounded-xl py-3 text-xs text-white/30 hover:text-white/50 transition-all">
+                      className="w-full border border-dashed border-white/12 hover:border-etg-purple/40 hover:bg-etg-purple/5 rounded-xl py-3 text-sm text-white/40 hover:text-white/60 transition-all font-medium">
                       + Add manual directive
                     </button>
                   )}
+
                   {directives.filter(d => !d.active).length > 0 && (
                     <details className="group">
-                      <summary className="text-xs text-white/25 cursor-pointer hover:text-white/40 list-none flex items-center gap-1.5">
+                      <summary className="text-sm text-white/30 cursor-pointer hover:text-white/50 list-none flex items-center gap-1.5 font-medium">
                         <span className="group-open:rotate-90 transition-transform inline-block">›</span>
                         {directives.filter(d => !d.active).length} dismissed directives
                       </summary>
                       <div className="mt-2 space-y-2 opacity-40">
                         {directives.filter(d => !d.active).map(d => (
-                          <div key={d.id} className="bg-white/3 rounded-lg px-3 py-2 text-xs text-white/40">
-                            <span className={`mr-1.5 font-medium ${COACH_META[d.target_coach as keyof typeof COACH_META]?.color}`}>{d.target_coach}</span>{d.directive}
+                          <div key={d.id} className="bg-white/3 rounded-lg px-3 py-2 text-xs text-white/50">
+                            <span className={`mr-1.5 font-semibold ${COACH_META[d.target_coach as keyof typeof COACH_META]?.color}`}>{d.target_coach}</span>
+                            {d.directive}
                           </div>
                         ))}
                       </div>
@@ -314,32 +321,34 @@ export default function CentralPage() {
                 </>
               )}
 
+              {/* FLAGS */}
               {tab === 'flags' && (
                 <div className="space-y-3">
-                  {flags.length === 0 && <div className="text-white/30 text-sm text-center py-8">No flags raised yet.</div>}
+                  {flags.length === 0 && <div className="text-white/35 text-sm text-center py-10">No flags raised yet.</div>}
                   {flags.map(f => (
                     <Card key={f.id} className={f.resolved ? 'opacity-40' : ''}>
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <div className="text-sm text-white/80">{f.message}</div>
-                          <div className="text-xs text-white/30 mt-1">{format(parseISO(f.created_at), 'd MMM yyyy · HH:mm')}</div>
+                          <div className="text-sm text-white/85 font-medium">{f.message}</div>
+                          <div className="text-xs text-white/40 mt-1">{format(parseISO(f.created_at), 'd MMM yyyy · HH:mm')}</div>
                         </div>
                         {!f.resolved
-                          ? <button onClick={() => resolveFlag(f.id)} className="text-xs text-white/30 hover:text-white/60 border border-white/10 rounded px-2 py-1">Resolve</button>
-                          : <span className="text-xs text-white/20">Resolved</span>}
+                          ? <button onClick={() => resolveFlag(f.id)} className="text-xs text-white/40 hover:text-white/70 border border-white/12 rounded-lg px-3 py-1.5 font-medium transition-colors">Resolve</button>
+                          : <span className="text-xs text-white/25 font-medium">Resolved</span>}
                       </div>
                     </Card>
                   ))}
                 </div>
               )}
 
+              {/* HISTORY */}
               {tab === 'history' && (
                 <div className="space-y-3">
-                  {logs.filter(l => l.central_output).length === 0 && <div className="text-white/30 text-sm text-center py-8">No history yet.</div>}
+                  {logs.filter(l => l.central_output).length === 0 && <div className="text-white/35 text-sm text-center py-10">No history yet.</div>}
                   {[...logs].filter(l => l.central_output).reverse().map(l => (
                     <Card key={l.id}>
-                      <div className="text-xs text-white/30 mb-2">{format(parseISO(l.date), 'EEEE, d MMM yyyy')}</div>
-                      <p className="text-sm text-white/60 leading-relaxed">{l.central_output}</p>
+                      <div className="text-xs text-white/40 mb-2 font-medium">{format(parseISO(l.date), 'EEEE, d MMM yyyy')}</div>
+                      <p className="text-sm text-white/65 leading-relaxed">{l.central_output}</p>
                     </Card>
                   ))}
                 </div>

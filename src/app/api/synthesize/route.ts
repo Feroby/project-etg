@@ -4,120 +4,248 @@ import { supabase } from '@/lib/supabase'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
+// ─── Server-side aggregation helpers ─────────────────────────────────────────
+// These run in JS before the AI call — cheap, no tokens wasted on raw rows
+
+function avg(arr: number[]): number | null {
+  const v = arr.filter(x => x != null && !isNaN(x))
+  return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null
+}
+
+function trend(arr: number[]): 'rising' | 'falling' | 'stable' | 'insufficient' {
+  const v = arr.filter(x => x != null && !isNaN(x))
+  if (v.length < 3) return 'insufficient'
+  // Simple linear regression slope
+  const n = v.length
+  const sumX = (n * (n - 1)) / 2
+  const sumX2 = (n * (n - 1) * (2 * n - 1)) / 6
+  const sumY = v.reduce((a, b) => a + b, 0)
+  const sumXY = v.reduce((a, b, i) => a + b * i, 0)
+  const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX)
+  const pctSlope = (slope / (sumY / n)) * 100
+  if (pctSlope > 1) return 'rising'
+  if (pctSlope < -1) return 'falling'
+  return 'stable'
+}
+
+function streak(arr: (number | null)[], threshold: number, direction: 'above' | 'below'): number {
+  let count = 0
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (arr[i] == null) break
+    const pass = direction === 'above' ? arr[i]! >= threshold : arr[i]! <= threshold
+    if (pass) count++; else break
+  }
+  return count
+}
+
+// ─── Main route ───────────────────────────────────────────────────────────────
+
 export async function POST(req: NextRequest) {
   try {
-    const { days = 3 } = await req.json()
-
-    const [{ data: settings }, { data: logs }, { data: sessions }, { data: setsRaw }, { data: existingDirectives }] = await Promise.all([
+    // Fetch everything in one parallel batch
+    const [
+      { data: settings },
+      { data: allLogs },          // Full history for trend analysis
+      { data: allSessions },      // Full session history for the block
+      { data: setsRaw },
+      { data: existingDirectives },
+      { data: prevSyntheses },    // Last 3 syntheses for feedback loop
+      { data: program },          // Active training program
+      { data: recentChats },      // Last specialist outputs for "coach thread"
+    ] = await Promise.all([
       supabase.from('settings').select('*').single(),
-      supabase.from('daily_logs').select('*').order('date', { ascending: false }).limit(days),
-      supabase.from('strength_sessions').select('*').order('date', { ascending: false }).limit(days * 2),
+      supabase.from('daily_logs').select('*').order('date', { ascending: true }).limit(60),
+      supabase.from('strength_sessions').select('*').order('date', { ascending: true }).limit(30),
       supabase.from('session_sets').select('*').order('set_number', { ascending: true }),
-      supabase.from('coach_directives').select('*').eq('active', true).order('created_at', { ascending: false }).limit(20),
+      supabase.from('coach_directives').select('*').eq('active', true).order('created_at', { ascending: false }).limit(10),
+      supabase.from('synthesis_history').select('overall_score, headline, snapshot_weight, snapshot_hrv, snapshot_avg_protein, created_at').order('created_at', { ascending: false }).limit(5),
+      supabase.from('training_program').select('*').eq('active', true).order('created_at', { ascending: false }).limit(1).single(),
+      // Recent specialist outputs — last coach response per domain
+      supabase.from('daily_logs').select('date, nutrition_output, recovery_output, central_output').order('date', { ascending: false }).limit(5),
     ])
 
-    const recentLogs = (logs || []).reverse()
-    const recentSessions = (sessions || []).reverse()
+    const logs = allLogs || []
+    const sessions = allSessions || []
 
+    // ── Group sets ──
     const sessionSets: Record<string, any[]> = {}
     ;(setsRaw || []).forEach((st: any) => {
       if (!sessionSets[st.session_id]) sessionSets[st.session_id] = []
       sessionSets[st.session_id].push(st)
     })
 
-    const nutritionBlock = recentLogs.map(l => {
-      const lines = [`${l.date}: Cal=${l.calories ?? '—'} P=${l.protein ?? '—'}g C=${l.carbs ?? '—'}g F=${l.fat ?? '—'}g Water=${l.water ?? '—'}L Weight=${l.weight ?? '—'}kg Quality="${l.meal_quality ?? '—'}"`]
-      if (l.food_items) lines.push(`  Foods: ${l.food_items}`)
-      if (l.nutrition_notes) lines.push(`  Notes: ${l.nutrition_notes}`)
-      return lines.join('\n')
+    // ── Compute aggregates (JS, not tokens) ──
+    const last7 = logs.slice(-7)
+    const last30 = logs.slice(-30)
+    const last14 = logs.slice(-14)
+
+    const agg = {
+      // Weight
+      weightNow:     logs[logs.length - 1]?.weight ?? null,
+      weightWk1:     logs[0]?.weight ?? null,
+      weightTrend7:  trend(last7.map(l => l.weight)),
+      weightTrend30: trend(last30.map(l => l.weight)),
+
+      // Nutrition
+      avgProtein7:  avg(last7.map(l => l.protein)),
+      avgProtein14: avg(last14.map(l => l.protein)),
+      avgCals7:     avg(last7.map(l => l.calories)),
+      avgCals14:    avg(last14.map(l => l.calories)),
+      avgWater7:    avg(last7.map(l => l.water ? Math.round(l.water * 10) / 10 : null)),
+      daysUnderProtein: last14.filter(l => l.protein && settings?.daily_protein && l.protein < settings.daily_protein * 0.9).length,
+      daysUnderCalories: last14.filter(l => l.calories && settings?.daily_calories && l.calories < settings.daily_calories - 300).length,
+
+      // Recovery
+      avgHrv7:        avg(last7.map(l => l.hrv)),
+      avgHrv14:       avg(last14.map(l => l.hrv)),
+      avgHrv30:       avg(last30.map(l => l.hrv)),
+      hrvTrend7:      trend(last7.map(l => l.hrv)),
+      hrvTrend14:     trend(last14.map(l => l.hrv)),
+      avgSleep7:      avg(last7.map(l => l.sleep_hours ? Math.round(l.sleep_hours * 10) : null)),
+      avgRecovery7:   avg(last7.map(l => l.whoop_recovery)),
+      avgStrain7:     avg(last7.map(l => l.whoop_strain)),
+      lowHrvStreak:   streak(last14.map(l => l.hrv), settings?.hrv_minimum || 65, 'below'),
+      highStrainDays: last7.filter(l => l.whoop_strain && l.whoop_strain > (settings?.whoop_max_strain || 15)).length,
+
+      // Strength
+      sessionsThisBlock: sessions.length,
+      avgRpe7: avg(sessions.slice(-4).map(s => s.rpe)),
+      rpeItems: sessions.slice(-6).map(s => ({ date: s.date, day: s.day_type, rpe: s.rpe, feel: s.feel })),
+
+      // Bench/squat max weights over time
+      benchProgression: (() => {
+        const pts: {date: string, weight: number}[] = []
+        sessions.forEach(s => {
+          const sets = (sessionSets[s.id] || []).filter((st: any) => st.exercise_name?.toLowerCase().includes('bench') && st.weight)
+          if (sets.length) pts.push({ date: s.date, weight: Math.max(...sets.map((st: any) => st.weight)) })
+        })
+        return pts.slice(-5)
+      })(),
+      squatProgression: (() => {
+        const pts: {date: string, weight: number}[] = []
+        sessions.forEach(s => {
+          const sets = (sessionSets[s.id] || []).filter((st: any) => st.exercise_name?.toLowerCase().includes('squat') && st.weight)
+          if (sets.length) pts.push({ date: s.date, weight: Math.max(...sets.map((st: any) => st.weight)) })
+        })
+        return pts.slice(-5)
+      })(),
+    }
+
+    // ── Recent detailed window (last 7 days, day-by-day) ──
+    const detailBlock = last7.map(l => {
+      const parts = [`${l.date}: W=${l.weight ?? '—'}kg Cal=${l.calories ?? '—'} P=${l.protein ?? '—'}g HRV=${l.hrv ?? '—'}ms Rec=${l.whoop_recovery ?? '—'}% Sleep=${l.sleep_hours ?? '—'}hr Strain=${l.whoop_strain ?? '—'} Soreness=${l.soreness ?? '—'}/10`]
+      if (l.food_items) parts.push(`  Foods: ${l.food_items}`)
+      if (l.nutrition_notes || l.recovery_notes) parts.push(`  Notes: ${[l.nutrition_notes, l.recovery_notes].filter(Boolean).join(' | ')}`)
+      return parts.join('\n')
     }).join('\n')
 
-    const recoveryBlock = recentLogs.map(l =>
-      `${l.date}: HRV=${l.hrv ?? '—'}ms RHR=${l.rhr ?? '—'}bpm Sleep=${l.sleep_hours ?? '—'}hr(q:${l.sleep_quality ?? '—'}/10) WhoopRec=${l.whoop_recovery ?? '—'}% Strain=${l.whoop_strain ?? '—'} Soreness=${l.soreness ?? '—'}/10${l.recovery_notes ? ` Notes: ${l.recovery_notes}` : ''}`
-    ).join('\n')
-
-    const strengthBlock = recentSessions.map(s => {
+    // ── Strength session detail (last 6 sessions) ──
+    const strengthDetail = sessions.slice(-6).map(s => {
       const sets = sessionSets[s.id] || []
-      const seen: Record<string, boolean> = {}
-      const exNames: string[] = []
-      sets.forEach((st: any) => { if (!seen[st.exercise_name]) { seen[st.exercise_name] = true; exNames.push(st.exercise_name) } })
-      const detail = exNames.length > 0
-        ? exNames.map((ex: string) => `  ${ex}: ${sets.filter((st: any) => st.exercise_name === ex).map((st: any) => `${st.weight ?? '-'}kg×${st.reps ?? '-'}@RPE${st.rpe ?? '-'}`).join(', ')}`).join('\n')
-        : (s.session_detail ? `  ${s.session_detail}` : '  No set data')
-      return `${s.date}: ${s.day_type} | Feel="${s.feel ?? '—'}" | ${s.duration ?? '—'}min\n${detail}`
+      const exNames = [...new Set(sets.map((st: any) => st.exercise_name))]
+      const detail = exNames.length
+        ? exNames.map(ex => `  ${ex}: ${sets.filter((st: any) => st.exercise_name === ex).map((st: any) => `${st.weight ?? '-'}kg×${st.reps ?? '-'}@RPE${st.rpe ?? '-'}`).join(', ')}`).join('\n')
+        : `  ${s.session_detail || 'No set data'}`
+      return `${s.date} ${s.day_type} (Wk${s.week_number}) Feel="${s.feel ?? '—'}" ${s.duration ?? '—'}min\n${detail}`
     }).join('\n\n')
 
-    const settingsBlock = settings ? `Goal weight: ${settings.goal_weight}kg (current: ${settings.current_weight}kg) | Target: ${settings.target_date}
-Calories: ${settings.daily_calories}kcal | P: ${settings.daily_protein}g | C: ${settings.daily_carbs}g | F: ${settings.daily_fat}g
-HRV baseline: ${settings.hrv_baseline}ms | Min: ${settings.hrv_minimum}ms | Sleep target: ${settings.sleep_target}hr
-Training: ${settings.current_block} | Goal: ${settings.training_goal}` : 'Settings not configured'
+    // ── Coach thread — what specialists have said recently ──
+    const coachThread = (recentChats || []).filter(l => l.nutrition_output || l.recovery_output).slice(0, 3).map(l =>
+      `${l.date}:\n` +
+      (l.nutrition_output ? `  Nutrition: ${l.nutrition_output.slice(0, 200)}…\n` : '') +
+      (l.recovery_output ? `  Recovery: ${l.recovery_output.slice(0, 200)}…\n` : '')
+    ).join('\n')
 
-    const currentDirectivesBlock = (existingDirectives || []).length > 0
-      ? `\nCURRENTLY ACTIVE DIRECTIVES (from previous synthesis):\n${(existingDirectives || []).map(d => `[${d.target_coach.toUpperCase()}][${d.priority}] ${d.directive}`).join('\n')}`
-      : '\nNo active directives from previous synthesis.'
+    // ── Previous synthesis thread ──
+    const synthThread = (prevSyntheses || []).length
+      ? `SYNTHESIS HISTORY (most recent first):\n${(prevSyntheses || []).map(s =>
+          `${(s.created_at as string).slice(0, 10)}: Score=${s.overall_score}/10 Weight=${s.snapshot_weight}kg HRV=${s.snapshot_hrv}ms AvgProtein=${s.snapshot_avg_protein}g | "${s.headline}"`
+        ).join('\n')}`
+      : 'No previous syntheses.'
 
-    const prompt = `You are the Head Performance Coach synthesising ${days} day(s) of athlete data. Produce a structured JSON report AND issue directives to your specialist coaches. Return ONLY valid JSON, no markdown fences.
+    // ── Program context ──
+    const programCtx = program
+      ? `Block: ${program.block_name} | Week ${program.week_number}/${program.total_weeks} | Goal: ${program.goal}`
+      : 'No active program.'
 
-ATHLETE SETTINGS:
-${settingsBlock}
+    // ── Current directives being tested ──
+    const directivesCtx = (existingDirectives || []).length
+      ? `ACTIVE DIRECTIVES (issued by you previously — assess whether they are working):\n${(existingDirectives || []).map(d => `[${d.target_coach.toUpperCase()}][${d.priority}] ${d.directive}`).join('\n')}`
+      : 'No active directives.'
 
-NUTRITION DATA (${days}d):
-${nutritionBlock || 'No nutrition data'}
+    // ── Build the prompt ──
+    const settingsBlock = settings
+      ? `Goal: ${settings.goal_weight}kg (from ${settings.current_weight}kg) by ${settings.target_date} | Cals: ${settings.daily_calories}kcal | P: ${settings.daily_protein}g | HRV baseline: ${settings.hrv_baseline}ms (min: ${settings.hrv_minimum}ms) | Sleep: ${settings.sleep_target}hr | Block goal: ${settings.training_goal}`
+      : 'Settings not configured.'
 
-RECOVERY DATA (${days}d):
-${recoveryBlock || 'No recovery data'}
+    const prompt = `You are the Head Performance Coach for a 1.86m ~95kg male athlete targeting muscle gain. You have access to their full history.
 
-STRENGTH DATA (${days}d):
-${strengthBlock || 'No strength data'}
-${currentDirectivesBlock}
+GOALS & SETTINGS: ${settingsBlock}
+TRAINING PROGRAM: ${programCtx}
 
-Return this exact JSON structure:
+AGGREGATED METRICS (computed from full history):
+- Weight: now=${agg.weightNow}kg start=${agg.weightWk1}kg | 7d trend=${agg.weightTrend7} 30d trend=${agg.weightTrend30}
+- Nutrition 7d avg: ${agg.avgCals7}kcal / ${agg.avgProtein7}g protein / ${agg.avgWater7}L water
+- Nutrition 14d avg: ${agg.avgCals14}kcal / ${agg.avgProtein14}g protein
+- Days under protein target (14d): ${agg.daysUnderProtein} | Days under calorie target (14d): ${agg.daysUnderCalories}
+- HRV 7d avg: ${agg.avgHrv7}ms | 14d avg: ${agg.avgHrv14}ms | 30d avg: ${agg.avgHrv30}ms | 7d trend: ${agg.hrvTrend7} | 14d trend: ${agg.hrvTrend14}
+- Sleep 7d avg: ${agg.avgSleep7 ? (agg.avgSleep7 / 10).toFixed(1) : '—'}hr | Whoop recovery 7d avg: ${agg.avgRecovery7}%
+- Consecutive days HRV below minimum: ${agg.lowHrvStreak}
+- High strain days (last 7d): ${agg.highStrainDays}
+- Strength sessions this block: ${agg.sessionsThisBlock} | Avg RPE (last 4 sessions): ${agg.avgRpe7}
+- Bench progression (top set weight): ${agg.benchProgression.map(p => `${p.date.slice(5)}: ${p.weight}kg`).join(' → ') || 'no data'}
+- Squat progression: ${agg.squatProgression.map(p => `${p.date.slice(5)}: ${p.weight}kg`).join(' → ') || 'no data'}
+
+LAST 7 DAYS (day-by-day detail):
+${detailBlock || 'No data'}
+
+STRENGTH SESSIONS (last 6):
+${strengthDetail || 'No sessions'}
+
+WHAT SPECIALIST COACHES HAVE BEEN SAYING:
+${coachThread || 'No recent specialist outputs'}
+
+${synthThread}
+
+${directivesCtx}
+
+Your job: spot what the specialist coaches miss. They see individual days. You see the full arc.
+Look for: multi-week trends, domain interactions (e.g. HRV falling while calories drop), goal trajectory (is the athlete on track?), patterns the athlete wouldn't notice themselves (e.g. consistent Sunday under-eating, or HRV always low after high-strain training days).
+
+Return ONLY valid JSON, no markdown fences:
 {
-  "period": "<e.g. 'Last 3 days: Apr 3–5'>",
-  "overall_score": <1-10 integer>,
-  "headline": "<1 sentence punchy summary of overall athlete status>",
+  "period": "<date range covered>",
+  "overall_score": <1-10>,
+  "headline": "<1 punchy sentence on the most important thing right now>",
   "domains": {
-    "nutrition": {
-      "score": <1-10>,
-      "status": "on_track" | "attention" | "critical",
-      "summary": "<2-3 sentences with specific numbers>",
-      "key_wins": ["<specific win>"],
-      "flags": ["<specific concern with numbers>"]
-    },
-    "recovery": {
-      "score": <1-10>,
-      "status": "on_track" | "attention" | "critical",
-      "summary": "<2-3 sentences with specific numbers>",
-      "key_wins": ["<specific win>"],
-      "flags": ["<specific concern with numbers>"]
-    },
-    "strength": {
-      "score": <1-10>,
-      "status": "on_track" | "attention" | "critical",
-      "summary": "<2-3 sentences with specific numbers>",
-      "key_wins": ["<specific win>"],
-      "flags": ["<specific concern with numbers>"]
-    }
+    "nutrition": { "score": <1-10>, "status": "on_track"|"attention"|"critical", "summary": "<2-3 sentences with trend context, not just today>", "key_wins": ["<win>"], "flags": ["<concern>"] },
+    "recovery":  { "score": <1-10>, "status": "on_track"|"attention"|"critical", "summary": "<2-3 sentences>", "key_wins": ["<win>"], "flags": ["<concern>"] },
+    "strength":  { "score": <1-10>, "status": "on_track"|"attention"|"critical", "summary": "<2-3 sentences>", "key_wins": ["<win>"], "flags": ["<concern>"] }
   },
   "cross_domain_insights": [
-    "<insight connecting 2+ domains with specific data>",
+    "<insight connecting 2+ domains — the kind individual coaches miss. Be specific with numbers.>",
     "<insight>",
-    "<insight if warranted>"
+    "<insight>"
+  ],
+  "goal_trajectory": "<1-2 sentences: is the athlete on track to hit their goal weight by their target date? What does the trend say?>",
+  "blind_spots": [
+    "<something the athlete is probably not seeing — a pattern, a risk, an opportunity>",
+    "<blind spot if warranted>"
   ],
   "directives": [
-    { "priority": "high" | "medium", "action": "<directive shown to athlete>", "domain": "nutrition" | "recovery" | "strength" | "all" }
+    { "priority": "high"|"medium", "action": "<specific instruction to athlete>", "domain": "nutrition"|"recovery"|"strength"|"all" }
   ],
   "coach_notes": {
-    "nutrition": "<standing instruction for Dr. Mitchell — what to watch for, emphasise, or push back on in upcoming logs/chats. Be specific. E.g: 'Athlete is under-eating protein consistently. Challenge every log where protein <180g. Suggest specific high-protein food swaps. Do not accept <160g without flagging.'>",
-    "recovery": "<standing instruction for Dr. Hartley — what patterns to monitor, thresholds to enforce, or adjustments to make. E.g: 'HRV trending down. Flag any session where strain >10 until HRV recovers above baseline. Push back on training on days with recovery <40%.'>",
-    "strength": "<standing instruction for Dr. Reid — programming adjustments, load guidance, technique flags to watch. E.g: 'Squat reintroduction going well. Athlete can progress load by 2.5kg per session next week if RPE stays at 6. Flag any squat RPE above 7.5 this week.'>"
+    "nutrition": "<specific standing instruction for Dr. Mitchell based on multi-week patterns>",
+    "recovery":  "<specific standing instruction for Dr. Hartley>",
+    "strength":  "<specific standing instruction for Dr. Reid>"
   },
-  "next_checkpoint": "<what to monitor next>"
+  "next_checkpoint": "<what to watch for in the next 7 days>"
 }`
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 1800,
+      max_tokens: 2000,
       messages: [{ role: 'user', content: prompt }],
     })
 
@@ -125,26 +253,35 @@ Return this exact JSON structure:
     const cleaned = raw.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
     const report = JSON.parse(cleaned)
 
-    // Save directives to DB — deactivate old ones first, then insert new
-    const coaches: Array<'nutrition' | 'recovery' | 'strength'> = ['nutrition', 'recovery', 'strength']
+    // Save directives
+    const coachKeys = ['nutrition', 'recovery', 'strength'] as const
     await supabase.from('coach_directives').update({ active: false }).eq('active', true).eq('source', 'central')
-
     if (report.coach_notes) {
-      const toInsert = coaches
-        .filter(c => report.coach_notes[c] && report.coach_notes[c].trim())
-        .map(c => ({
-          target_coach: c,
-          directive: report.coach_notes[c].trim(),
-          priority: 'medium' as const,
-          source: 'central',
-          active: true,
-        }))
-      if (toInsert.length > 0) {
-        await supabase.from('coach_directives').insert(toInsert)
-      }
+      const toInsert = coachKeys
+        .filter(c => report.coach_notes[c]?.trim())
+        .map(c => ({ target_coach: c, directive: report.coach_notes[c].trim(), priority: 'medium' as const, source: 'central', active: true }))
+      if (toInsert.length) await supabase.from('coach_directives').insert(toInsert)
     }
 
-    // Track usage
+    // Save synthesis to history (for future feedback loop)
+    const latestLog = logs[logs.length - 1]
+    Promise.resolve(
+      supabase.from('synthesis_history').insert({
+        period_days: 7,
+        overall_score: report.overall_score,
+        headline: report.headline,
+        snapshot_weight: latestLog?.weight ?? null,
+        snapshot_hrv: latestLog?.hrv ?? null,
+        snapshot_avg_protein: agg.avgProtein7,
+        snapshot_avg_calories: agg.avgCals7,
+        snapshot_avg_sleep: agg.avgSleep7 ? agg.avgSleep7 / 10 : null,
+        snapshot_whoop_recovery: agg.avgRecovery7,
+        report,
+        prior_directives: existingDirectives || [],
+      })
+    ).catch(() => {})
+
+    // Track API usage
     Promise.resolve(
       supabase.from('api_usage').insert({
         coach: 'central', input_tokens: response.usage.input_tokens, output_tokens: response.usage.output_tokens,
@@ -153,10 +290,9 @@ Return this exact JSON structure:
       })
     ).catch(() => {})
 
-    // Fetch the newly saved directives to return to UI
     const { data: newDirectives } = await supabase.from('coach_directives').select('*').eq('active', true).order('target_coach')
-
     return NextResponse.json({ report, generatedAt: new Date().toISOString(), directives: newDirectives || [] })
+
   } catch (e: any) {
     console.error('Synthesize error:', e)
     return NextResponse.json({ error: e.message }, { status: 500 })
