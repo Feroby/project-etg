@@ -30,13 +30,28 @@ export default function TrendChart({ data, dataKey, color, label, referenceValue
       </div>
     )
   }
+
+  // Tight y-axis: 15% padding either side of actual data range so small changes are visible
+  const values = data.map(d => d[dataKey]).filter((v): v is number => v != null)
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const range = max - min || max * 0.1 || 1 // handle flat line edge case
+  const pad = range * 0.15
+  const yMin = Math.floor(min - pad)
+  const yMax = Math.ceil(max + pad)
+
   return (
     <div>
       <div className="text-[10px] uppercase tracking-wider text-white/30 mb-2">{label}</div>
       <ResponsiveContainer width="100%" height={120}>
         <LineChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
           <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#ffffff40' }} tickLine={false} axisLine={false} />
-          <YAxis tick={{ fontSize: 9, fill: '#ffffff40' }} tickLine={false} axisLine={false} />
+          <YAxis
+            tick={{ fontSize: 9, fill: '#ffffff40' }}
+            tickLine={false}
+            axisLine={false}
+            domain={[yMin, yMax]}
+          />
           <Tooltip content={<CustomTooltip unit={unit} />} />
           {referenceValue && (
             <ReferenceLine y={referenceValue} stroke={color} strokeDasharray="3 3" strokeOpacity={0.4} />
