@@ -109,7 +109,7 @@ export default function SynthesisReport({ report, generatedAt }: { report: Repor
               <p className="text-sm text-white/70 leading-relaxed mb-3">{d.summary}</p>
               {(d.key_wins?.length ?? 0) > 0 && (
                 <div className="space-y-1.5 mb-2">
-                  {d.key_wins.map((w, i) => (
+                  {(d.key_wins ?? []).map((w, i) => (
                     <div key={i} className="flex items-start gap-1.5 text-xs text-etg-green/90">
                       <span className="mt-0.5 flex-shrink-0 font-bold">✓</span><span>{w}</span>
                     </div>
@@ -118,7 +118,7 @@ export default function SynthesisReport({ report, generatedAt }: { report: Repor
               )}
               {(d.flags?.length ?? 0) > 0 && (
                 <div className="space-y-1.5">
-                  {d.flags.map((f, i) => (
+                  {(d.flags ?? []).map((f, i) => (
                     <div key={i} className="flex items-start gap-1.5 text-xs text-etg-amber/90">
                       <span className="mt-0.5 flex-shrink-0">⚠</span><span>{f}</span>
                     </div>
@@ -135,7 +135,7 @@ export default function SynthesisReport({ report, generatedAt }: { report: Repor
         <div className="bg-[#111] border border-white/10 rounded-xl p-4">
           <div className="text-xs font-bold text-white/50 uppercase tracking-widest mb-3">Cross-domain insights</div>
           <div className="space-y-3">
-            {report.cross_domain_insights.map((insight, i) => (
+            {(report.cross_domain_insights ?? []).map((insight, i) => (
               <div key={i} className="flex items-start gap-3">
                 <div className="w-5 h-5 rounded-full bg-etg-purple/25 text-etg-purple flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5">
                   {i + 1}
@@ -152,7 +152,7 @@ export default function SynthesisReport({ report, generatedAt }: { report: Repor
         <div className="bg-etg-purple/8 border border-etg-purple/20 rounded-xl p-4">
           <div className="text-xs font-bold text-etg-purple/70 uppercase tracking-widest mb-3">Blind spots</div>
           <div className="space-y-2.5">
-            {report.blind_spots.map((spot, i) => (
+            {(report.blind_spots ?? []).map((spot, i) => (
               <div key={i} className="flex items-start gap-2.5">
                 <span className="text-etg-purple/60 flex-shrink-0 mt-0.5 text-sm">◈</span>
                 <p className="text-sm text-white/75 leading-relaxed">{spot}</p>
@@ -167,7 +167,7 @@ export default function SynthesisReport({ report, generatedAt }: { report: Repor
         <div className="bg-[#111] border border-white/10 rounded-xl p-4">
           <div className="text-xs font-bold text-white/50 uppercase tracking-widest mb-3">Directives</div>
           <div className="space-y-3">
-            {report.directives.map((d, i) => (
+            {(report.directives ?? []).map((d, i) => (
               <div key={i} className="flex items-start gap-3">
                 <div className={`flex-shrink-0 mt-0.5 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${DOMAIN_CHIP[d.domain] || DOMAIN_CHIP.all}`}>
                   {d.domain}
