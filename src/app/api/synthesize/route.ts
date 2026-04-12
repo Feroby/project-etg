@@ -4,9 +4,6 @@ import { supabase } from '@/lib/supabase'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-// ─── Server-side aggregation helpers ─────────────────────────────────────────
-// These run in JS before the AI call — cheap, no tokens wasted on raw rows
-
 function avg(arr: (number | null)[]): number | null {
   const v = arr.filter((x): x is number => x != null && !isNaN(x as number))
   return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null
@@ -15,7 +12,6 @@ function avg(arr: (number | null)[]): number | null {
 function trend(arr: (number | null | undefined)[]): 'rising' | 'falling' | 'stable' | 'insufficient' {
   const v = arr.filter((x): x is number => x != null && !isNaN(x as number))
   if (v.length < 3) return 'insufficient'
-  // Simple linear regression slope
   const n = v.length
   const sumX = (n * (n - 1)) / 2
   const sumX2 = (n * (n - 1) * (2 * n - 1)) / 6
@@ -38,20 +34,17 @@ function streak(arr: (number | null | undefined)[], threshold: number, direction
   return count
 }
 
-// ─── Main route ───────────────────────────────────────────────────────────────
-
 export async function POST(req: NextRequest) {
   try {
-    // Fetch everything in one parallel batch
     const [
       { data: settings },
-      { data: allLogs },          // Full history for trend analysis
-      { data: allSessions },      // Full session history for the block
+      { data: allLogs },
+      { data: allSessions },
       { data: setsRaw },
       { data: existingDirectives },
-      { data: prevSyntheses },    // Last 3 syntheses for feedback loop
-      { data: program },          // Active training program
-      { data: recentChats },      // Last specialist outputs for "coach thread"
+      { data: prevSyntheses },
+      { data: program },
+      { data: recentChats },
     ] = await Promise.all([
       supabase.from('settings').select('*').single(),
       supabase.from('daily_logs').select('*').order('date', { ascending: true }).limit(60),
@@ -60,42 +53,34 @@ export async function POST(req: NextRequest) {
       supabase.from('coach_directives').select('*').eq('active', true).order('created_at', { ascending: false }).limit(10),
       supabase.from('synthesis_history').select('overall_score, headline, snapshot_weight, snapshot_hrv, snapshot_avg_protein, created_at').order('created_at', { ascending: false }).limit(5),
       supabase.from('training_program').select('*').eq('active', true).order('created_at', { ascending: false }).limit(1).single(),
-      // Recent specialist outputs — last coach response per domain
       supabase.from('daily_logs').select('date, nutrition_output, recovery_output, central_output').order('date', { ascending: false }).limit(5),
     ])
 
     const logs = allLogs || []
     const sessions = allSessions || []
 
-    // ── Group sets ──
     const sessionSets: Record<string, any[]> = {}
     ;(setsRaw || []).forEach((st: any) => {
       if (!sessionSets[st.session_id]) sessionSets[st.session_id] = []
       sessionSets[st.session_id].push(st)
     })
 
-    // ── Compute aggregates (JS, not tokens) ──
-    const last7 = logs.slice(-7)
-    const last30 = logs.slice(-30)
+    const last7  = logs.slice(-7)
     const last14 = logs.slice(-14)
+    const last30 = logs.slice(-30)
 
     const agg = {
-      // Weight
       weightNow:     logs[logs.length - 1]?.weight ?? null,
       weightWk1:     logs[0]?.weight ?? null,
       weightTrend7:  trend(last7.map(l => l.weight)),
       weightTrend30: trend(last30.map(l => l.weight)),
-
-      // Nutrition
-      avgProtein7:  avg(last7.map(l => l.protein)),
-      avgProtein14: avg(last14.map(l => l.protein)),
-      avgCals7:     avg(last7.map(l => l.calories)),
-      avgCals14:    avg(last14.map(l => l.calories)),
-      avgWater7:    avg(last7.map(l => l.water != null ? Math.round(l.water * 10) / 10 : null)),
-      daysUnderProtein: last14.filter(l => l.protein && settings?.daily_protein && l.protein < settings.daily_protein * 0.9).length,
+      avgProtein7:   avg(last7.map(l => l.protein)),
+      avgProtein14:  avg(last14.map(l => l.protein)),
+      avgCals7:      avg(last7.map(l => l.calories)),
+      avgCals14:     avg(last14.map(l => l.calories)),
+      avgWater7:     avg(last7.map(l => l.water != null ? Math.round(l.water * 10) / 10 : null)),
+      daysUnderProtein:  last14.filter(l => l.protein && settings?.daily_protein && l.protein < settings.daily_protein * 0.9).length,
       daysUnderCalories: last14.filter(l => l.calories && settings?.daily_calories && l.calories < settings.daily_calories - 300).length,
-
-      // Recovery
       avgHrv7:        avg(last7.map(l => l.hrv)),
       avgHrv14:       avg(last14.map(l => l.hrv)),
       avgHrv30:       avg(last30.map(l => l.hrv)),
@@ -106,26 +91,38 @@ export async function POST(req: NextRequest) {
       avgStrain7:     avg(last7.map(l => l.whoop_strain)),
       lowHrvStreak:   streak(last14.map(l => l.hrv), settings?.hrv_minimum || 65, 'below'),
       highStrainDays: last7.filter(l => l.whoop_strain && l.whoop_strain > (settings?.whoop_max_strain || 15)).length,
-
-      // Strength
       sessionsThisBlock: sessions.length,
       avgRpe7: avg(sessions.slice(-4).map(s => s.rpe)),
-      rpeItems: sessions.slice(-6).map(s => ({ date: s.date, day: s.day_type, rpe: s.rpe, feel: s.feel })),
 
-      // Bench/squat max weights over time
+      // Barbell flat bench only — exclude incline, DB, cable
       benchProgression: (() => {
-        const pts: {date: string, weight: number}[] = []
+        const pts: { date: string; weight: number }[] = []
         sessions.forEach(s => {
-          const sets = (sessionSets[s.id] || []).filter((st: any) => st.exercise_name?.toLowerCase().includes('bench') && st.weight)
+          const sets = (sessionSets[s.id] || []).filter((st: any) => {
+            const name = (st.exercise_name || '').toLowerCase()
+            return name.includes('bench') &&
+              !name.includes('incline') && !name.includes('decline') &&
+              !name.includes('db') && !name.includes('dumbbell') &&
+              st.weight
+          })
           if (sets.length) pts.push({ date: s.date, weight: Math.max(...sets.map((st: any) => st.weight)) })
         })
         return pts.slice(-5)
       })(),
+
+      // Barbell back squat only — explicitly exclude goblet, split, Bulgarian, front squat
       squatProgression: (() => {
-        const pts: {date: string, weight: number}[] = []
+        const pts: { date: string; weight: number }[] = []
         sessions.forEach(s => {
-            const n = (st.exercise_name || '').toLowerCase()
-            const isBackSquat = (n.includes('back squat') || n.includes('low bar') || n.includes('high bar') || (n.includes('barbell') && n.includes('squat'))) && !n.includes('goblet') && !n.includes('split') && !n.includes('bulgarian') && !n.includes('front')
+          const sets = (sessionSets[s.id] || []).filter((st: any) => {
+            const name = (st.exercise_name || '').toLowerCase()
+            const isBackSquat = (
+              name.includes('back squat') ||
+              name.includes('low bar') ||
+              name.includes('high bar') ||
+              (name.includes('barbell') && name.includes('squat'))
+            ) && !name.includes('goblet') && !name.includes('split') &&
+              !name.includes('bulgarian') && !name.includes('front')
             return isBackSquat && st.weight
           })
           if (sets.length) pts.push({ date: s.date, weight: Math.max(...sets.map((st: any) => st.weight)) })
@@ -134,7 +131,6 @@ export async function POST(req: NextRequest) {
       })(),
     }
 
-    // ── Recent detailed window (last 7 days, day-by-day) ──
     const detailBlock = last7.map(l => {
       const parts = [`${l.date}: W=${l.weight ?? '—'}kg Cal=${l.calories ?? '—'} P=${l.protein ?? '—'}g HRV=${l.hrv ?? '—'}ms Rec=${l.whoop_recovery ?? '—'}% Sleep=${l.sleep_hours ?? '—'}hr Strain=${l.whoop_strain ?? '—'} Soreness=${l.soreness ?? '—'}/10`]
       if (l.food_items) parts.push(`  Foods: ${l.food_items}`)
@@ -142,7 +138,6 @@ export async function POST(req: NextRequest) {
       return parts.join('\n')
     }).join('\n')
 
-    // ── Strength session detail (last 6 sessions) ──
     const strengthDetail = sessions.slice(-6).map(s => {
       const sets = sessionSets[s.id] || []
       const exNames = Array.from(new Set(sets.map((st: any) => st.exercise_name as string)))
@@ -152,44 +147,39 @@ export async function POST(req: NextRequest) {
       return `${s.date} ${s.day_type} (Wk${s.week_number}) Feel="${s.feel ?? '—'}" ${s.duration ?? '—'}min\n${detail}`
     }).join('\n\n')
 
-    // ── Coach thread — what specialists have said recently ──
     const coachThread = (recentChats || []).filter(l => l.nutrition_output || l.recovery_output).slice(0, 3).map(l =>
       `${l.date}:\n` +
       (l.nutrition_output ? `  Nutrition: ${l.nutrition_output.slice(0, 200)}…\n` : '') +
-      (l.recovery_output ? `  Recovery: ${l.recovery_output.slice(0, 200)}…\n` : '')
+      (l.recovery_output  ? `  Recovery: ${l.recovery_output.slice(0, 200)}…\n`  : '')
     ).join('\n')
 
-    // ── Previous synthesis thread ──
     const synthThread = (prevSyntheses || []).length
-      ? `SYNTHESIS HISTORY (most recent first):\n${(prevSyntheses || []).map(s =>
+      ? `SYNTHESIS HISTORY:\n${(prevSyntheses || []).map(s =>
           `${(s.created_at as string).slice(0, 10)}: Score=${s.overall_score}/10 Weight=${s.snapshot_weight}kg HRV=${s.snapshot_hrv}ms AvgProtein=${s.snapshot_avg_protein}g | "${s.headline}"`
         ).join('\n')}`
       : 'No previous syntheses.'
 
-    // ── Program context ──
     const programCtx = program
       ? `Block: ${program.block_name} | Week ${program.week_number}/${program.total_weeks} | Goal: ${program.goal}`
       : 'No active program.'
 
-    // ── Current directives being tested ──
     const directivesCtx = (existingDirectives || []).length
-      ? `ACTIVE DIRECTIVES (issued by you previously — assess whether they are working):\n${(existingDirectives || []).map(d => `[${d.target_coach.toUpperCase()}][${d.priority}] ${d.directive}`).join('\n')}`
+      ? `ACTIVE DIRECTIVES:\n${(existingDirectives || []).map(d => `[${d.target_coach.toUpperCase()}][${d.priority}] ${d.directive}`).join('\n')}`
       : 'No active directives.'
 
-    // ── Build the prompt ──
     const settingsBlock = settings
       ? `Goal: ${settings.goal_weight}kg (from ${settings.current_weight}kg) by ${settings.target_date} | Cals: ${settings.daily_calories}kcal | P: ${settings.daily_protein}g | HRV baseline: ${settings.hrv_baseline}ms (min: ${settings.hrv_minimum}ms) | Sleep: ${settings.sleep_target}hr | Block goal: ${settings.training_goal}`
       : 'Settings not configured.'
 
     const today = new Date().toISOString().slice(0, 10)
 
-    const prompt = `You are the Head Performance Coach for a 1.86m ~95kg male athlete targeting muscle gain. You have access to their full history.
+    const prompt = `You are the Head Performance Coach for a 1.86m ~95kg male athlete targeting muscle gain.
 
 TODAY'S DATE: ${today}
 GOALS & SETTINGS: ${settingsBlock}
 TRAINING PROGRAM: ${programCtx}
 
-AGGREGATED METRICS (computed from full history):
+AGGREGATED METRICS:
 - Weight: now=${agg.weightNow}kg start=${agg.weightWk1}kg | 7d trend=${agg.weightTrend7} 30d trend=${agg.weightTrend30}
 - Nutrition 7d avg: ${agg.avgCals7}kcal / ${agg.avgProtein7}g protein / ${agg.avgWater7}L water
 - Nutrition 14d avg: ${agg.avgCals14}kcal / ${agg.avgProtein14}g protein
@@ -198,57 +188,49 @@ AGGREGATED METRICS (computed from full history):
 - Sleep 7d avg: ${agg.avgSleep7 ? (agg.avgSleep7 / 10).toFixed(1) : '—'}hr | Whoop recovery 7d avg: ${agg.avgRecovery7}%
 - Consecutive days HRV below minimum: ${agg.lowHrvStreak}
 - High strain days (last 7d): ${agg.highStrainDays}
-- Strength sessions this block: ${agg.sessionsThisBlock} | Avg RPE (last 4 sessions): ${agg.avgRpe7}
-- Bench progression (barbell flat bench only): ${agg.benchProgression.map(p => `${p.date.slice(5)}: ${p.weight}kg`).join(' → ') || 'no data'}
-- Squat progression (barbell back squat only — goblet/split/front squat NOT included): ${agg.squatProgression.map(p => `${p.date.slice(5)}: ${p.weight}kg`).join(' → ') || 'no data'}
+- Strength sessions this block: ${agg.sessionsThisBlock} | Avg RPE (last 4): ${agg.avgRpe7}
+- Barbell bench press progression: ${agg.benchProgression.map(p => `${p.date.slice(5)}: ${p.weight}kg`).join(' → ') || 'no data'}
+- Barbell back squat progression (goblet/split/front squat excluded): ${agg.squatProgression.map(p => `${p.date.slice(5)}: ${p.weight}kg`).join(' → ') || 'no data'}
 
-LAST 7 DAYS (day-by-day detail):
+LAST 7 DAYS:
 ${detailBlock || 'No data'}
 
 STRENGTH SESSIONS (last 6):
 ${strengthDetail || 'No sessions'}
 
-WHAT SPECIALIST COACHES HAVE BEEN SAYING:
-${coachThread || 'No recent specialist outputs'}
+SPECIALIST COACH THREAD:
+${coachThread || 'No recent outputs'}
 
 ${synthThread}
 
 ${directivesCtx}
 
-IMPORTANT: When analysing strength progressions, only compare like-for-like exercises. Goblet squats, Bulgarian split squats, and leg press are accessory movements — never compare their loads to barbell back squat. Similarly, incline press loads are not comparable to flat bench press.
+STRENGTH ANALYSIS RULES: Only compare like-for-like barbell movements. Goblet squat, Bulgarian split squat, walking lunges, leg press are accessory movements — their loads have no relationship to barbell back squat. Incline DB press loads are not comparable to flat barbell bench. Never infer back squat strength from goblet squat or any other variant.
 
-Your job: spot what the specialist coaches miss. They see individual days. You see the full arc.
-Look for: multi-week trends, domain interactions (e.g. HRV falling while calories drop), goal trajectory (is the athlete on track?), patterns the athlete wouldn't notice themselves (e.g. consistent Sunday under-eating, or HRV always low after high-strain training days).
+Your job: spot what specialist coaches miss. They see individual days. You see the full arc.
 
 Return ONLY valid JSON, no markdown fences:
 {
-  "period": "<date range covered>",
+  "period": "<date range>",
   "overall_score": <1-10>,
-  "headline": "<1 punchy sentence on the most important thing right now>",
+  "headline": "<1 punchy sentence>",
   "domains": {
-    "nutrition": { "score": <1-10>, "status": "on_track"|"attention"|"critical", "summary": "<2-3 sentences with trend context, not just today>", "key_wins": ["<win>"], "flags": ["<concern>"] },
+    "nutrition": { "score": <1-10>, "status": "on_track"|"attention"|"critical", "summary": "<2-3 sentences with trend context>", "key_wins": ["<win>"], "flags": ["<concern>"] },
     "recovery":  { "score": <1-10>, "status": "on_track"|"attention"|"critical", "summary": "<2-3 sentences>", "key_wins": ["<win>"], "flags": ["<concern>"] },
     "strength":  { "score": <1-10>, "status": "on_track"|"attention"|"critical", "summary": "<2-3 sentences>", "key_wins": ["<win>"], "flags": ["<concern>"] }
   },
-  "cross_domain_insights": [
-    "<insight connecting 2+ domains — the kind individual coaches miss. Be specific with numbers.>",
-    "<insight>",
-    "<insight>"
-  ],
-  "goal_trajectory": "<1-2 sentences: is the athlete on track to hit their goal weight by their target date? What does the trend say?>",
-  "blind_spots": [
-    "<something the athlete is probably not seeing — a pattern, a risk, an opportunity>",
-    "<blind spot if warranted>"
-  ],
+  "cross_domain_insights": ["<insight with specific numbers>", "<insight>", "<insight>"],
+  "goal_trajectory": "<1-2 sentences on weight target progress>",
+  "blind_spots": ["<pattern athlete is not seeing>", "<blind spot if warranted>"],
   "directives": [
-    { "priority": "high"|"medium", "action": "<specific instruction to athlete>", "domain": "nutrition"|"recovery"|"strength"|"all" }
+    { "priority": "high"|"medium", "action": "<specific instruction>", "domain": "nutrition"|"recovery"|"strength"|"all" }
   ],
   "coach_notes": {
-    "nutrition": "<specific standing instruction for Dr. Mitchell based on multi-week patterns>",
-    "recovery":  "<specific standing instruction for Dr. Hartley>",
-    "strength":  "<specific standing instruction for Dr. Reid>"
+    "nutrition": "<standing instruction for Dr. Mitchell>",
+    "recovery":  "<standing instruction for Dr. Hartley>",
+    "strength":  "<standing instruction for Dr. Reid>"
   },
-  "next_checkpoint": "<what to watch for in the next 7 days>"
+  "next_checkpoint": "<what to watch in next 7 days>"
 }`
 
     const response = await client.messages.create({
@@ -261,7 +243,6 @@ Return ONLY valid JSON, no markdown fences:
     const cleaned = raw.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
     const report = JSON.parse(cleaned)
 
-    // Save directives
     const coachKeys = ['nutrition', 'recovery', 'strength'] as const
     await supabase.from('coach_directives').update({ active: false }).eq('active', true).eq('source', 'central')
     if (report.coach_notes) {
@@ -271,25 +252,17 @@ Return ONLY valid JSON, no markdown fences:
       if (toInsert.length) await supabase.from('coach_directives').insert(toInsert)
     }
 
-    // Save synthesis to history (for future feedback loop)
     const latestLog = logs[logs.length - 1]
     Promise.resolve(
       supabase.from('synthesis_history').insert({
-        period_days: 7,
-        overall_score: report.overall_score,
-        headline: report.headline,
-        snapshot_weight: latestLog?.weight ?? null,
-        snapshot_hrv: latestLog?.hrv ?? null,
-        snapshot_avg_protein: agg.avgProtein7,
-        snapshot_avg_calories: agg.avgCals7,
+        period_days: 7, overall_score: report.overall_score, headline: report.headline,
+        snapshot_weight: latestLog?.weight ?? null, snapshot_hrv: latestLog?.hrv ?? null,
+        snapshot_avg_protein: agg.avgProtein7, snapshot_avg_calories: agg.avgCals7,
         snapshot_avg_sleep: agg.avgSleep7 ? agg.avgSleep7 / 10 : null,
-        snapshot_whoop_recovery: agg.avgRecovery7,
-        report,
-        prior_directives: existingDirectives || [],
+        snapshot_whoop_recovery: agg.avgRecovery7, report, prior_directives: existingDirectives || [],
       })
     ).catch(() => {})
 
-    // Track API usage
     Promise.resolve(
       supabase.from('api_usage').insert({
         coach: 'central', input_tokens: response.usage.input_tokens, output_tokens: response.usage.output_tokens,
