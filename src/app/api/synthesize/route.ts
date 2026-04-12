@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
     // ── Strength session detail (last 6 sessions) ──
     const strengthDetail = sessions.slice(-6).map(s => {
       const sets = sessionSets[s.id] || []
-      const exNames = [...new Set(sets.map((st: any) => st.exercise_name))]
+      const exNames = Array.from(new Set(sets.map((st: any) => st.exercise_name as string)))
       const detail = exNames.length
         ? exNames.map(ex => `  ${ex}: ${sets.filter((st: any) => st.exercise_name === ex).map((st: any) => `${st.weight ?? '-'}kg×${st.reps ?? '-'}@RPE${st.rpe ?? '-'}`).join(', ')}`).join('\n')
         : `  ${s.session_detail || 'No set data'}`
