@@ -55,10 +55,13 @@ export default function CentralPage() {
   async function handleSynthesize() {
     setSynthesising(true); setSynthError(null); setReport(null)
     try {
+      // cache: 'no-store' prevents any cached response from a different API route
+      // being served here. Body includes ts to ensure the request is always unique.
       const res = await fetch('/api/synthesize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        cache: 'no-store',
+        body: JSON.stringify({ ts: Date.now() }),
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
@@ -143,7 +146,6 @@ export default function CentralPage() {
           </div>
         </div>
 
-        {/* CHAT — fullscreen */}
         {isChat && (
           <div className="flex-1 min-h-0 px-6 pb-6 flex flex-col">
             <div className="flex-1 min-h-0 bg-[#111] border border-etg-purple/40 rounded-xl overflow-hidden flex flex-col">
@@ -163,15 +165,12 @@ export default function CentralPage() {
           </div>
         )}
 
-        {/* ALL OTHER TABS */}
         {!isChat && (
           <div className="flex-1 px-6 pb-6 pt-0">
             <div className="max-w-5xl mx-auto space-y-4">
 
-              {/* SYNTHESIS */}
               {tab === 'synthesis' && (
                 <>
-                  {/* Trigger card */}
                   <div className="bg-gradient-to-r from-etg-purple/15 to-transparent border border-etg-purple/25 rounded-2xl p-5">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
@@ -181,7 +180,7 @@ export default function CentralPage() {
                           Also issues fresh standing directives to all three specialists.
                         </div>
                       </div>
-                      <button onClick={handleSynthesize} disabled={synthesising || !hasData}
+                      <button type="button" onClick={handleSynthesize} disabled={synthesising || !hasData}
                         className="flex items-center gap-2 bg-etg-purple hover:bg-etg-purple/80 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-6 py-3 rounded-xl text-sm transition-all flex-shrink-0">
                         {synthesising
                           ? <><Spinner size="sm" /><span>Analysing...</span></>
@@ -216,7 +215,6 @@ export default function CentralPage() {
                 </>
               )}
 
-              {/* DIRECTIVES */}
               {tab === 'directives' && (
                 <>
                   <div className="bg-etg-purple/8 border border-etg-purple/20 rounded-xl p-4">
@@ -245,7 +243,7 @@ export default function CentralPage() {
                                   {d.source === 'manual' ? 'Manual' : 'From synthesis'} · {format(new Date(d.created_at), 'd MMM HH:mm')}
                                 </span>
                               </div>
-                              <button onClick={() => dismissDirective(d.id)}
+                              <button type="button" onClick={() => dismissDirective(d.id)}
                                 className="text-white/20 hover:text-red-400 text-sm opacity-0 group-hover:opacity-100 transition-colors px-1">✕</button>
                             </div>
                           ))}
@@ -287,16 +285,16 @@ export default function CentralPage() {
                           className="w-full bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-sm text-white placeholder-white/25 focus:outline-none resize-none" />
                       </div>
                       <div className="flex gap-2">
-                        <button onClick={() => setAddingDirective(false)}
+                        <button type="button" onClick={() => setAddingDirective(false)}
                           className="px-3 py-2 text-sm text-white/45 border border-white/12 rounded-lg hover:bg-white/5 font-medium">Cancel</button>
-                        <button onClick={saveManualDirective} disabled={savingDirective || !newDirectiveText.trim()}
+                        <button type="button" onClick={saveManualDirective} disabled={savingDirective || !newDirectiveText.trim()}
                           className="px-3 py-2 text-sm bg-etg-purple hover:bg-etg-purple/80 disabled:opacity-40 text-white rounded-lg flex items-center gap-1.5 font-semibold">
                           {savingDirective && <Spinner size="sm" />} Save directive
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <button onClick={() => setAddingDirective(true)}
+                    <button type="button" onClick={() => setAddingDirective(true)}
                       className="w-full border border-dashed border-white/12 hover:border-etg-purple/40 hover:bg-etg-purple/5 rounded-xl py-3 text-sm text-white/40 hover:text-white/60 transition-all font-medium">
                       + Add manual directive
                     </button>
@@ -321,7 +319,6 @@ export default function CentralPage() {
                 </>
               )}
 
-              {/* FLAGS */}
               {tab === 'flags' && (
                 <div className="space-y-3">
                   {flags.length === 0 && <div className="text-white/35 text-sm text-center py-10">No flags raised yet.</div>}
@@ -333,7 +330,7 @@ export default function CentralPage() {
                           <div className="text-xs text-white/40 mt-1">{format(parseISO(f.created_at), 'd MMM yyyy · HH:mm')}</div>
                         </div>
                         {!f.resolved
-                          ? <button onClick={() => resolveFlag(f.id)} className="text-xs text-white/40 hover:text-white/70 border border-white/12 rounded-lg px-3 py-1.5 font-medium transition-colors">Resolve</button>
+                          ? <button type="button" onClick={() => resolveFlag(f.id)} className="text-xs text-white/40 hover:text-white/70 border border-white/12 rounded-lg px-3 py-1.5 font-medium transition-colors">Resolve</button>
                           : <span className="text-xs text-white/25 font-medium">Resolved</span>}
                       </div>
                     </Card>
@@ -341,7 +338,6 @@ export default function CentralPage() {
                 </div>
               )}
 
-              {/* HISTORY */}
               {tab === 'history' && (
                 <div className="space-y-3">
                   {logs.filter(l => l.central_output).length === 0 && <div className="text-white/35 text-sm text-center py-10">No history yet.</div>}
