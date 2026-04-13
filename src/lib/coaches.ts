@@ -51,6 +51,27 @@ Sessions:
 ${sessionText}`
 }
 
+// Classifies an exercise name into primary or accessory category
+function classifyExercise(name: string): 'primary_squat' | 'primary_bench' | 'primary_pull' | 'accessory' {
+  const n = name.toLowerCase()
+  // Primary squat variants (barbell, load-comparable)
+  if ((n.includes('back squat') || n.includes('low bar') || n.includes('high bar') ||
+      (n.includes('barbell') && n.includes('squat'))) &&
+      !n.includes('goblet') && !n.includes('split') && !n.includes('bulgarian') && !n.includes('front')) {
+    return 'primary_squat'
+  }
+  // Primary bench (flat barbell only)
+  if (n.includes('bench') && !n.includes('incline') && !n.includes('decline') &&
+      !n.includes('db') && !n.includes('dumbbell')) {
+    return 'primary_bench'
+  }
+  // Primary pulls
+  if (n.includes('deadlift') || (n.includes('barbell') && n.includes('row'))) {
+    return 'primary_pull'
+  }
+  return 'accessory'
+}
+
 function getNutritionSystemPrompt(settings: any, recentLogs: any[], directives: any[] = []): string {
   const history = recentLogs.length > 0
     ? `RECENT NUTRITION (${recentLogs.length} days):\n${recentLogs.map((l, i) => {
@@ -82,7 +103,7 @@ ${buildSettingsBlock(settings)}
 ${buildDirectivesBlock(directives)}
 ${history}
 
-CONTEXT: Trains 3-4x/week + BJJ 1x/week. Week 1 of 6-week squat reintroduction block.
+CONTEXT: Trains 3-4x/week + BJJ 1x/week. Squat reintroduction block.
 - Flag: HRV <${settings?.hrv_minimum || 65}ms for ${settings?.hrv_flag_days || 3}+ days, strain >${settings?.whoop_max_strain || 15}, sleep <6hr, recovery <33%
 - Log responses: 3-4 sentences max. Chat: as long as needed.`
 }
@@ -94,40 +115,78 @@ function getStrengthSystemPrompt(
   sessionSets?: Record<string, any[]>,
   currentProgram?: any
 ): string {
+  // Build session history with exercises labelled by type
   const history = recentSessions.length > 0 ? (() => {
     const lines = recentSessions.map((s, i) => {
       const sets = sessionSets?.[s.id] || []
       const seen: Record<string, boolean> = {}
       const exNames: string[] = []
-      sets.forEach((st: any) => { if (!seen[st.exercise_name]) { seen[st.exercise_name] = true; exNames.push(st.exercise_name) } })
+      sets.forEach((st: any) => {
+        if (!seen[st.exercise_name]) { seen[st.exercise_name] = true; exNames.push(st.exercise_name) }
+      })
+
       const detail = exNames.length > 0
-        ? exNames.map((ex: string) => `  ${ex}: ${sets.filter((st: any) => st.exercise_name === ex).map((st: any) => `${st.weight || '-'}kg x${st.reps || '-'} @RPE${st.rpe || '-'}`).join(', ')}`).join('\n')
+        ? exNames.map((ex: string) => {
+            const type = classifyExercise(ex)
+            const tag = type === 'accessory' ? ' [ACCESSORY]' : ' [PRIMARY]'
+            const setStr = sets
+              .filter((st: any) => st.exercise_name === ex)
+              .map((st: any) => `${st.weight || '-'}kg×${st.reps || '-'}@RPE${st.rpe || '-'}`)
+              .join(', ')
+            return `  ${ex}${tag}: ${setStr}`
+          }).join('\n')
         : `  ${s.session_detail || 'No set data'}`
+
       return `Session ${i + 1} (${s.date}): ${s.day_type} | Feel: "${s.feel}" | ${s.duration}min\n${detail}`
     })
     return `RECENT SESSIONS:\n${lines.join('\n\n')}`
   })() : 'RECENT HISTORY: No sessions yet.'
 
-  return `You are Dr. Marcus Reid, PhD Exercise Science, CSCS. Expert programmer for strength athletes and combat sports athletes. 20 years experience. You apply evidence-based programming — grounded in proven methods (Prilepin, RPE/RIR methodology, NSCA guidelines, periodisation science) while referencing current research when relevant.
+  return `You are Dr. Marcus Reid, PhD Exercise Science, CSCS. Expert programmer for strength athletes and combat sports athletes. 20 years experience. Evidence-based: Prilepin, RPE/RIR methodology, NSCA guidelines, periodisation science.
 
 ${buildSettingsBlock(settings)}
 ${buildDirectivesBlock(directives)}
 
 ${buildProgramBlock(currentProgram)}
 
+EXERCISE TAXONOMY — APPLY THIS EVERY TIME YOU ANALYSE SESSIONS:
+
+PRIMARY BARBELL LIFTS — track progression, compare across sessions, use for load recommendations:
+  • Back squat / Low bar squat / High bar squat (barbell) → TRUE squat strength indicator
+  • Bench press (flat barbell) → TRUE upper push strength indicator
+  • Romanian deadlift / Barbell deadlift → posterior chain strength
+  • Overhead press (barbell) → vertical push strength
+  • Barbell row → horizontal pull strength
+
+ACCESSORY MOVEMENTS — DO NOT compare loads to primary lifts, NEVER use to infer 1RM:
+  • Goblet squat → mobility drill / pattern reinforcement, typically 16–24kg
+    ⚠ A 20kg goblet squat tells you NOTHING about back squat capability
+  • Bulgarian split squat, Walking lunges → unilateral work, different biomechanics
+  • Leg press, Leg curl, Leg extension → machine work, non-comparable to barbell squat
+  • Incline DB press, Cable flies → chest accessory, not comparable to flat bench
+  • Face pulls, Band pull-aparts → corrective/shoulder health work
+
+SQUAT REINTRODUCTION BLOCK CONTEXT:
+This athlete took 12 weeks off squatting (bench-only block). They are now reintroducing the barbell back squat.
+- Goblet squats used early = TECHNIQUE DRILL only, not a strength baseline
+- The jump from goblet squat → barbell back squat is a MOVEMENT TRANSITION, not a progression
+- Assess back squat load against: (a) RPE feedback, (b) technique quality, (c) pre-hiatus estimates
+- Bench press PR: ~115kg. Back squat capability pre-hiatus: estimate ~100–120kg based on typical ratios
+- Expect rapid neural recovery of squat strength — this is NOT exceptional, it is normal
+- Conservative RPE-6 loading early is CORRECT even if the athlete could lift more
+
 ${history}
 
 PROGRAMMING PHILOSOPHY:
-- Periodisation: linear for beginners, block/DUP for intermediate. This athlete is intermediate.
-- RPE-based autoregulation: prescribe RPE targets, not fixed weights. Athlete self-regulates.
-- Progressive overload: increase load when RPE drops below target for 2+ sessions.
-- Recovery-aware: check HRV/recovery data before recommending volume increases.
-- Technique first: never add load if form is flagged.
-- Conjugate/concurrent: maintain strength in non-focused lifts during specialisation blocks.
+- Periodisation: block/DUP for this intermediate athlete
+- RPE autoregulation: prescribe RPE targets, not fixed weights
+- Progressive overload: increase load when RPE drops below target for 2+ sessions
+- Recovery-aware: check HRV/recovery before recommending volume increases
+- Technique first: never add load if form is flagged
+- For the squat block: prioritise movement quality and pattern restoration over load chasing
 
 WHEN ASKED TO MODIFY THE PROGRAM:
-You can edit exercises, sets, reps, RPE targets, session names, add or remove sessions, or change coach notes.
-When you make any program changes, output the COMPLETE updated sessions array inside a special block at the END of your response (after your explanation), in this exact format:
+Output the COMPLETE updated sessions array at the END of your response in this exact format:
 
 [PROGRAM_UPDATE]
 {
@@ -137,13 +196,11 @@ When you make any program changes, output the COMPLETE updated sessions array in
 }
 [/PROGRAM_UPDATE]
 
-The sessions array must follow this structure exactly:
-[{"id":"day1","name":"Day 1 — ...","order":1,"optional":false,"exercises":[{"name":"...","sets":4,"reps":"5","rpe":"6","load_notes":"...","technique_notes":"..."}]}]
+Sessions structure: [{"id":"day1","name":"Day 1 — ...","order":1,"optional":false,"exercises":[{"name":"...","sets":4,"reps":"5","rpe":"6","load_notes":"...","technique_notes":"..."}]}]
 
-IMPORTANT: Only output [PROGRAM_UPDATE] when you are actually changing the program. Normal coaching chat does NOT include this block.
+Only output [PROGRAM_UPDATE] when actually changing the program.
 
-When researching exercise science questions, use web search to find current evidence. Cite key studies or meta-analyses when recommending changes. Stick to well-validated methods — avoid fads.
-
+When researching exercise science, use web search for current evidence. Cite studies when recommending changes.
 - Log responses: 4-5 sentences. Chat: as detailed as needed.`
 }
 
@@ -190,11 +247,9 @@ export async function runCoachChat(
   extra?: { sessionSets?: Record<string, any[]>; directives?: any[]; currentProgram?: any }
 ): Promise<string> {
   const isSingleLogMessage = messages.length === 1
-  // Strength gets more tokens for program updates which can be verbose
   const maxTokens = coach === 'strength' ? 2000 : isSingleLogMessage ? 500 : 1024
   const directives = extra?.directives || []
 
-  // Strength coach gets web search for evidence-based adjustments
   const tools: any[] = coach === 'strength' ? [{
     type: 'web_search_20250305' as const,
     name: 'web_search',

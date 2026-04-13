@@ -155,11 +155,33 @@ export async function POST(req: NextRequest) {
       return parts.join('\n')
     }).join('\n')
 
+    // Helper to classify exercises for the central coach context
+    const classifyEx = (name: string) => {
+      const n = (name || '').toLowerCase()
+      if ((n.includes('back squat') || n.includes('low bar') || n.includes('high bar') ||
+           (n.includes('barbell') && n.includes('squat'))) &&
+           !n.includes('goblet') && !n.includes('split') && !n.includes('bulgarian') && !n.includes('front'))
+        return '[BACK SQUAT]'
+      if (n.includes('bench') && !n.includes('incline') && !n.includes('decline') &&
+          !n.includes('db') && !n.includes('dumbbell'))
+        return '[BENCH]'
+      if (n.includes('deadlift') || (n.includes('barbell') && n.includes('row')))
+        return '[PRIMARY PULL]'
+      if (n.includes('goblet')) return '[ACCESSORY-mobility drill, not comparable to back squat]'
+      if (n.includes('split') || n.includes('bulgarian') || n.includes('lunge')) return '[ACCESSORY-unilateral]'
+      if (n.includes('leg press') || n.includes('leg curl') || n.includes('leg ext')) return '[ACCESSORY-machine]'
+      return '[ACCESSORY]'
+    }
+
     const strengthDetail = sessions.slice(-6).map(s => {
       const sets = sessionSets[s.id] || []
       const exNames = Array.from(new Set(sets.map((st: any) => st.exercise_name as string)))
       const detail = exNames.length
-        ? exNames.map(ex => `  ${ex}: ${sets.filter((st: any) => st.exercise_name === ex).map((st: any) => `${st.weight ?? '-'}kg×${st.reps ?? '-'}@RPE${st.rpe ?? '-'}`).join(', ')}`).join('\n')
+        ? exNames.map(ex => {
+            const tag = classifyEx(ex)
+            const setStr = sets.filter((st: any) => st.exercise_name === ex).map((st: any) => `${st.weight ?? '-'}kg×${st.reps ?? '-'}@RPE${st.rpe ?? '-'}`).join(', ')
+            return `  ${ex} ${tag}: ${setStr}`
+          }).join('\n')
         : `  ${s.session_detail || 'No set data'}`
       return `${s.date} ${s.day_type} (Wk${s.week_number}) Feel="${s.feel ?? '—'}" ${s.duration ?? '—'}min\n${detail}`
     }).join('\n\n')
