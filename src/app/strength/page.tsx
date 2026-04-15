@@ -24,13 +24,13 @@ function uniqueExerciseNames(sets: any[]): string[] {
 }
 
 function buildExerciseLogs(session: Session): ExerciseLog[] {
-  return session.exercises.map(ex => ({
+  // Guard: sessions like BJJ may have no exercises
+  return (session.exercises || []).map(ex => ({
     exercise: ex.name,
     sets: Array.from({ length: ex.sets || 3 }, () => emptySet()),
   }))
 }
 
-// Inline chat component that supports programUpdated notifications
 function StrengthChatInterface({ initialMessages, onProgramUpdated }: { initialMessages: any[]; onProgramUpdated: () => void }) {
   const [messages, setMessages] = useState<{ role: string; content: string }[]>(initialMessages)
   const [input, setInput] = useState('')
@@ -68,7 +68,7 @@ function StrengthChatInterface({ initialMessages, onProgramUpdated }: { initialM
     <div className="flex flex-col h-full">
       {programUpdatedToast && (
         <div className="flex-shrink-0 mx-4 mt-3 bg-etg-blue/20 border border-etg-blue/30 rounded-lg px-3 py-2 text-xs text-etg-blue flex items-center gap-2">
-          <span>✓</span> Dr. Reid updated your program — refresh "This week" to see changes
+          <span>✓</span> Dr. Reid updated your program — switch to "This week" to see changes
         </div>
       )}
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
@@ -137,7 +137,6 @@ export default function StrengthPage() {
   const [program, setProgram] = useState<Program | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // Log session state
   const [logSession, setLogSession] = useState<Session | null>(null)
   const [logDate, setLogDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [logWeek, setLogWeek] = useState('1')
@@ -147,8 +146,6 @@ export default function StrengthPage() {
   const [exerciseLogs, setExerciseLogs] = useState<ExerciseLog[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<any>(null)
-
-  const today = format(new Date(), 'yyyy-MM-dd')
 
   async function loadData() {
     const [{ data: s }, { data: sets }, { data: ch }, programRes] = await Promise.all([
@@ -176,7 +173,6 @@ export default function StrengthPage() {
 
   useEffect(() => { loadData() }, [])
 
-  // Called when chat detects a program update
   const handleProgramUpdated = useCallback(async () => {
     const res = await fetch('/api/program')
     const data = await res.json()
@@ -306,8 +302,6 @@ export default function StrengthPage() {
           {/* THIS WEEK TAB */}
           {tab === 'program' && (
             <div className="space-y-3">
-
-              {/* Block header + week progress */}
               {program ? (
                 <div className="bg-[#111] border border-etg-blue/20 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-3">
@@ -328,19 +322,19 @@ export default function StrengthPage() {
                 </div>
               ) : (
                 <div className="bg-white/3 border border-white/10 rounded-xl p-4 text-center text-white/30 text-sm">
-                  No program loaded. Run the SQL migration first.
+                  No program loaded.
                 </div>
               )}
 
-              {/* Session cards */}
               {programSessions.sort((a, b) => a.order - b.order).map((session) => {
                 const done = thisWeekSessions.find(s => s.day_type === session.name)
                 const sets = done ? sessionSets[done.id] || [] : []
+                const exercises = session.exercises || []
+                const isBJJ = session.name.toLowerCase().includes('bjj') || session.name.toLowerCase().includes('grappling') || session.name.toLowerCase().includes('martial')
 
                 return (
                   <div key={session.id} className={`rounded-xl border overflow-hidden ${done ? 'border-etg-blue/30' : 'border-white/8'}`}>
 
-                    {/* Session header row */}
                     <div className={`flex items-center justify-between px-4 py-3 ${done ? 'bg-etg-blue/8' : 'bg-white/3'}`}>
                       <div className="flex items-center gap-2.5 min-w-0">
                         {done ? (
@@ -370,49 +364,54 @@ export default function StrengthPage() {
                       )}
                     </div>
 
-                    {/* Column headers */}
-                    <div className="flex gap-4 px-4 pt-2.5 pb-1">
-                      <div className="w-44 flex-shrink-0 text-[9px] text-white/45 uppercase tracking-wider font-semibold">Exercise</div>
-                      <div className="flex-1 text-[9px] text-white/45 uppercase tracking-wider font-semibold">Prescribed</div>
-                      {done && <div className="w-48 flex-shrink-0 text-[9px] text-etg-blue/70 uppercase tracking-wider font-semibold">Actual</div>}
-                    </div>
-
-                    {/* Exercise rows */}
-                    <div className="divide-y divide-white/8 pb-1">
-                      {session.exercises.map((ex, j) => {
-                        const exSets = sets.filter((s: any) => s.exercise_name === ex.name)
-                        return (
-                          <div key={j} className="flex items-start gap-4 px-4 py-2">
-                            <div className="w-44 flex-shrink-0">
-                              <div className="text-sm font-semibold text-white">{ex.name}</div>
-                              {ex.technique_notes && <div className="text-[10px] text-white/40 mt-0.5 truncate" title={ex.technique_notes}>{ex.technique_notes}</div>}
-                            </div>
-                            <div className="flex-1 flex items-center gap-1.5 pt-0.5 flex-wrap">
-                              <span className="text-sm font-bold text-white/80">{ex.sets}×{ex.reps}</span>
-                              <span className="text-xs text-etg-blue/70 font-medium">@RPE {ex.rpe}</span>
-                              {ex.load_notes && <span className="text-[10px] text-white/40">· {ex.load_notes}</span>}
-                            </div>
-                            {done && (
-                              <div className="w-48 flex-shrink-0 pt-0.5">
-                                {exSets.length > 0 ? (
-                                  <div className="flex flex-wrap gap-1">
-                                    {exSets.map((s: any, k: number) => (
-                                      <span key={k} className="text-[10px] bg-etg-blue/15 text-etg-blue border border-etg-blue/30 px-1.5 py-0.5 rounded font-medium">
-                                        {s.weight ? `${s.weight}kg` : '—'}×{s.reps || '—'}{s.rpe ? ` @${s.rpe}` : ''}
-                                      </span>
-                                    ))}
+                    {/* BJJ / no-exercise sessions show a simple label instead of exercise table */}
+                    {exercises.length === 0 ? (
+                      <div className="px-4 py-3 text-xs text-white/35 italic">
+                        {isBJJ ? 'BJJ / grappling — log duration and feel' : 'No exercises prescribed'}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex gap-4 px-4 pt-2.5 pb-1">
+                          <div className="w-44 flex-shrink-0 text-[9px] text-white/45 uppercase tracking-wider font-semibold">Exercise</div>
+                          <div className="flex-1 text-[9px] text-white/45 uppercase tracking-wider font-semibold">Prescribed</div>
+                          {done && <div className="w-48 flex-shrink-0 text-[9px] text-etg-blue/70 uppercase tracking-wider font-semibold">Actual</div>}
+                        </div>
+                        <div className="divide-y divide-white/8 pb-1">
+                          {exercises.map((ex, j) => {
+                            const exSets = sets.filter((s: any) => s.exercise_name === ex.name)
+                            return (
+                              <div key={j} className="flex items-start gap-4 px-4 py-2">
+                                <div className="w-44 flex-shrink-0">
+                                  <div className="text-sm font-semibold text-white">{ex.name}</div>
+                                  {ex.technique_notes && <div className="text-[10px] text-white/40 mt-0.5 truncate" title={ex.technique_notes}>{ex.technique_notes}</div>}
+                                </div>
+                                <div className="flex-1 flex items-center gap-1.5 pt-0.5 flex-wrap">
+                                  <span className="text-sm font-bold text-white/80">{ex.sets}×{ex.reps}</span>
+                                  <span className="text-xs text-etg-blue/70 font-medium">@RPE {ex.rpe}</span>
+                                  {ex.load_notes && <span className="text-[10px] text-white/40">· {ex.load_notes}</span>}
+                                </div>
+                                {done && (
+                                  <div className="w-48 flex-shrink-0 pt-0.5">
+                                    {exSets.length > 0 ? (
+                                      <div className="flex flex-wrap gap-1">
+                                        {exSets.map((s: any, k: number) => (
+                                          <span key={k} className="text-[10px] bg-etg-blue/15 text-etg-blue border border-etg-blue/30 px-1.5 py-0.5 rounded font-medium">
+                                            {s.weight ? `${s.weight}kg` : '—'}×{s.reps || '—'}{s.rpe ? ` @${s.rpe}` : ''}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-[10px] text-white/30">—</span>
+                                    )}
                                   </div>
-                                ) : (
-                                  <span className="text-[10px] text-white/30">—</span>
                                 )}
                               </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
+                            )
+                          })}
+                        </div>
+                      </>
+                    )}
 
-                    {/* Session notes footer */}
                     {done?.session_notes && (
                       <div className="px-4 py-2.5 border-t border-white/5 bg-black/15">
                         <span className="text-[10px] text-white/50 font-semibold">Notes · </span>
@@ -456,7 +455,11 @@ export default function StrengthPage() {
                             {session.name}
                             {session.optional && <span className="text-[10px] text-white/30 border border-white/10 rounded px-1 py-0.5">opt</span>}
                           </div>
-                          <div className="text-[10px] text-white/30 mt-1">{session.exercises.length} exercises</div>
+                          <div className="text-[10px] text-white/30 mt-1">
+                            {(session.exercises || []).length > 0
+                              ? `${(session.exercises || []).length} exercises`
+                              : 'Log duration & feel'}
+                          </div>
                         </button>
                       ))}
                     </div>
@@ -492,56 +495,62 @@ export default function StrengthPage() {
                     </div>
                   </div>
 
-                  <div className="space-y-4">
-                    {exerciseLogs.map((ex, exIdx) => {
-                      const prescribed = logSession.exercises.find(p => p.name === ex.exercise)
-                      return (
-                        <div key={exIdx} className="bg-white/3 border border-white/8 rounded-xl p-3">
-                          <div className="mb-2">
-                            <div className="text-xs font-medium text-white">{ex.exercise}</div>
-                            {prescribed && (
-                              <div className="text-[10px] text-white/25 mt-0.5">
-                                Prescribed: {prescribed.sets}×{prescribed.reps} @RPE{prescribed.rpe}
-                                {prescribed.load_notes ? ` · ${prescribed.load_notes}` : ''}
-                              </div>
-                            )}
-                            {prescribed?.technique_notes && (
-                              <div className="text-[10px] text-etg-blue/40 mt-0.5">↳ {prescribed.technique_notes}</div>
-                            )}
-                          </div>
-                          <div className="space-y-1.5">
-                            <div className="grid grid-cols-12 gap-1.5 text-[9px] text-white/25 uppercase tracking-wider px-1">
-                              <div className="col-span-1">Set</div>
-                              <div className="col-span-3">Weight (kg)</div>
-                              <div className="col-span-3">Reps</div>
-                              <div className="col-span-3">RPE</div>
-                              <div className="col-span-2"></div>
+                  {exerciseLogs.length === 0 ? (
+                    <div className="bg-white/3 border border-white/8 rounded-xl p-4 text-sm text-white/40 text-center">
+                      No exercises for this session — log your duration and feel above, then submit.
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {exerciseLogs.map((ex, exIdx) => {
+                        const prescribed = (logSession.exercises || []).find(p => p.name === ex.exercise)
+                        return (
+                          <div key={exIdx} className="bg-white/3 border border-white/8 rounded-xl p-3">
+                            <div className="mb-2">
+                              <div className="text-xs font-medium text-white">{ex.exercise}</div>
+                              {prescribed && (
+                                <div className="text-[10px] text-white/25 mt-0.5">
+                                  Prescribed: {prescribed.sets}×{prescribed.reps} @RPE{prescribed.rpe}
+                                  {prescribed.load_notes ? ` · ${prescribed.load_notes}` : ''}
+                                </div>
+                              )}
+                              {prescribed?.technique_notes && (
+                                <div className="text-[10px] text-etg-blue/40 mt-0.5">↳ {prescribed.technique_notes}</div>
+                              )}
                             </div>
-                            {ex.sets.map((s, setIdx) => (
-                              <div key={setIdx} className="grid grid-cols-12 gap-1.5 items-center">
-                                <div className="col-span-1 text-[10px] text-white/30 text-center">{setIdx+1}</div>
-                                <input value={s.weight} onChange={e => updateSet(exIdx, setIdx, 'weight', e.target.value)}
-                                  placeholder="kg" type="number" step="0.5"
-                                  className="col-span-3 bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-white placeholder-white/15 focus:outline-none focus:border-etg-blue/40" />
-                                <input value={s.reps} onChange={e => updateSet(exIdx, setIdx, 'reps', e.target.value)}
-                                  placeholder="reps" type="number"
-                                  className="col-span-3 bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-white placeholder-white/15 focus:outline-none focus:border-etg-blue/40" />
-                                <input value={s.rpe} onChange={e => updateSet(exIdx, setIdx, 'rpe', e.target.value)}
-                                  placeholder="RPE" type="number" step="0.5" min="1" max="10"
-                                  className="col-span-3 bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-white placeholder-white/15 focus:outline-none focus:border-etg-blue/40" />
-                                <button onClick={() => removeSet(exIdx, setIdx)}
-                                  className="col-span-2 text-white/15 hover:text-red-400 text-xs transition-colors text-center">✕</button>
+                            <div className="space-y-1.5">
+                              <div className="grid grid-cols-12 gap-1.5 text-[9px] text-white/25 uppercase tracking-wider px-1">
+                                <div className="col-span-1">Set</div>
+                                <div className="col-span-3">Weight (kg)</div>
+                                <div className="col-span-3">Reps</div>
+                                <div className="col-span-3">RPE</div>
+                                <div className="col-span-2"></div>
                               </div>
-                            ))}
-                            <button onClick={() => addSet(exIdx)}
-                              className="text-[10px] text-etg-blue/50 hover:text-etg-blue transition-colors mt-1 flex items-center gap-1">
-                              <span>+</span> Add set
-                            </button>
+                              {ex.sets.map((s, setIdx) => (
+                                <div key={setIdx} className="grid grid-cols-12 gap-1.5 items-center">
+                                  <div className="col-span-1 text-[10px] text-white/30 text-center">{setIdx+1}</div>
+                                  <input value={s.weight} onChange={e => updateSet(exIdx, setIdx, 'weight', e.target.value)}
+                                    placeholder="kg" type="number" step="0.5"
+                                    className="col-span-3 bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-white placeholder-white/15 focus:outline-none focus:border-etg-blue/40" />
+                                  <input value={s.reps} onChange={e => updateSet(exIdx, setIdx, 'reps', e.target.value)}
+                                    placeholder="reps" type="number"
+                                    className="col-span-3 bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-white placeholder-white/15 focus:outline-none focus:border-etg-blue/40" />
+                                  <input value={s.rpe} onChange={e => updateSet(exIdx, setIdx, 'rpe', e.target.value)}
+                                    placeholder="RPE" type="number" step="0.5" min="1" max="10"
+                                    className="col-span-3 bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-white placeholder-white/15 focus:outline-none focus:border-etg-blue/40" />
+                                  <button onClick={() => removeSet(exIdx, setIdx)}
+                                    className="col-span-2 text-white/15 hover:text-red-400 text-xs transition-colors text-center">✕</button>
+                                </div>
+                              ))}
+                              <button onClick={() => addSet(exIdx)}
+                                className="text-[10px] text-etg-blue/50 hover:text-etg-blue transition-colors mt-1 flex items-center gap-1">
+                                <span>+</span> Add set
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      )
-                    })}
-                  </div>
+                        )
+                      })}
+                    </div>
+                  )}
 
                   <div className="mt-4">
                     <label className="text-xs text-white/40 block mb-1.5">Session notes — mobility, soreness, anything for Dr. Reid</label>
@@ -571,7 +580,6 @@ export default function StrengthPage() {
                 <div className="text-xs text-white/50 leading-relaxed">
                   Dr. Reid sees your full program, all session data with per-set detail, recent recovery metrics, and central coach directives.
                   <span className="text-etg-blue/60"> Ask him to modify any part of the program</span> — he'll update it directly and the changes appear in "This week" immediately.
-                  He searches current exercise science literature when recommending changes.
                 </div>
               </div>
               <Card accent="blue" className="h-[620px] flex flex-col p-0 overflow-hidden">
